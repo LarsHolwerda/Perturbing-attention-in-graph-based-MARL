@@ -1,0 +1,50 @@
+# Python cache and bytecode
+__pycache__/
+*.py[cod]
+*.so
+
+# Environments
+.env/
+.venv/
+env/
+venv/
+*.egg-info/
+
+# Jupyter Notebook checkpoints
+.ipynb_checkpoints/
+
+# PyTorch model files (usually large)
+*.pt
+*.pth
+checkpoints/
+models/
+
+# Experiment logs
+runs/
+logs/
+wandb/
+tensorboard/
+output/
+results/
+
+# OS & editor files
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# Build files
+build/
+dist/
+
+# Dataset & large files
+*.csv
+*.npy
+data/
+datasets/
+
+# Private keys, credentials
+*.pem
+*.key
+*.env
+secrets/
