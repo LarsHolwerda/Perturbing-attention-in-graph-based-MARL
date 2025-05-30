@@ -2,7 +2,7 @@ from gfootball.env import create_environment
 from learning_algorithms import RandomAgent
 import time
 
-env = create_environment(env_name='academy_3_vs_1_with_keeper', representation='simple115v2', number_of_left_players_agent_controls=3, render=False, write_full_episode_dumps=True, write_video=True)
+env = create_environment(env_name='academy_3_vs_1_with_keeper', representation='simple115v2', number_of_left_players_agent_controls=3, render=True)
 number_of_agents = 3
 actions_agents = env.action_space.nvec
 
