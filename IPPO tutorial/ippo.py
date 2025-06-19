@@ -2,15 +2,12 @@
 from gfootball.env import create_environment
 from gfootball import gfootball_pettingzoo_v1
 from torchrl.envs import PettingZooWrapper
-import gym
 
 # Torch
 import torch
 
 # Tensordict modules
 from tensordict.nn import set_composite_lp_aggregate, TensorDictModule
-from tensordict.nn.distributions import NormalParamExtractor
-from tensordict import TensorDict
 from torch import multiprocessing
 from torch.distributions import Categorical
 
@@ -45,7 +42,7 @@ device = (
 grf_device = device  # The device where the simulator is run (VMAS can run on GPU)
 
 # Sampling
-frames_per_batch = 1_000  # Number of team frames collected per training iteration
+frames_per_batch = 500  # Number of team frames collected per training iteration
 n_iters = 20  # Number of sampling and training iterations
 total_frames = frames_per_batch * n_iters
 
@@ -95,14 +92,15 @@ env = TransformedEnv(
     RewardSum(in_keys=[env.reward_key], out_keys=[("player", "episode_reward")]),
 )
 print(env.observation_spec)
-
+print(env.observation_spec["player", "observation"].shape[
+            -1
+        ])
 check_env_specs(env)
 
 
 share_parameters_policy = False
 
-policy_net = torch.nn.Sequential(
-    MultiAgentMLP(
+policy_net = MultiAgentMLP(
         n_agent_inputs=env.observation_spec["player", "observation"].shape[
             -1
         ],  # n_obs_per_agent
@@ -114,9 +112,8 @@ policy_net = torch.nn.Sequential(
         depth=2,
         num_cells=256,
         activation_class=torch.nn.ReLU,
-    ),
-    NormalParamExtractor(),  # this will just separate the last dimension into two outputs: a loc and a non-negative scale
 )
+
 
 policy_module = TensorDictModule(
     policy_net,
@@ -257,8 +254,7 @@ for i, tensordict_data in enumerate(collector):
     pbar.set_description(f"episode_reward_mean = {episode_reward_mean}", refresh=False)
     pbar.update()
     
-    
-
+torch.save(policy.state_dict(), "trained_policies/ippo_policy.pt")
     
 plt.plot(episode_reward_mean_list)
 plt.xlabel("Training iterations")
@@ -275,3 +271,5 @@ while not done:
     obs, reward, terminated, truncated, info = render_env.step(actions)
 
 render_env.close()
+
+#action = test_env[env.action_key].cpu().tolist()
