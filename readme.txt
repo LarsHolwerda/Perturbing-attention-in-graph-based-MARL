@@ -19,15 +19,3 @@ In the conda env install:
 pip install torchrl
 pip install tqdm
 
-To do:
-Reduce rollout time -> create vectorized envs (uses one cpu core only, but is quicker than now because of batching, how much?) or multiprocessing (Uses all cpu cores, but more memory needed)
-
-Logging in wandb
-
-Different classes:
-Algorithm
-Env
-Config
-Main
-
-Graph based methods
