@@ -8,11 +8,12 @@ actions_agents = env.action_space.nvec
 
 agents = [RandomAgent(actions_agents[i]) for i in range(number_of_agents)]
 
-obs = env.reset()
+obs, info = env.reset()
 done = False
 while not done:
     actions = [agents[i].act(obs[i]) for i in range(number_of_agents)]
-    next_obs, reward, done, info = env.step(actions)
+    print(f"Actions: {actions}")
+    next_obs, reward, terminated, truncated, info = env.step(actions)
     print(reward)
     obs = next_obs
     time.sleep(0.10)  
