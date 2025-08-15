@@ -1,14 +1,20 @@
+# Logging
 import os
 import glob
 from moviepy import VideoFileClip
 import wandb
-
-from env import create_render_env
-
+# Torch
 import torch
+import torch.nn.functional as F
+# Environment
+from env import create_render_env
+# Utils
 from tensordict import TensorDict
 import numpy as np
+from itertools import combinations
 
+
+# Initialize weights for layers
 def layer_init(layer, std=np.sqrt(2), bias_const=0.0):
         torch.nn.init.orthogonal_(layer.weight, std)
         torch.nn.init.constant_(layer.bias, bias_const)
@@ -26,9 +32,11 @@ def apply_orthogonal_init(model):
                 std = np.sqrt(2)  
             layer_init(layer, std=std, bias_const=0.01)
 
+# Logging
 def log_metrics(metrics, step, use_wandb):
     if use_wandb:
         wandb.log(metrics, step=step)
+        
 
 def record_video(env, policy, device, num_episodes=1):
     for i in range(num_episodes):
@@ -83,3 +91,27 @@ def upload_videos_to_wandb(video_dir="./traces", scenario=None, algorithm=None, 
 
         except Exception as e:
             print(f"Failed to upload or delete {mp4_path}: {e}")
+
+def compute_behavioral_diversity(subdata):
+    logits = subdata.get(("player", "logits"))
+    n_agents = logits.shape[1]
+
+    distances = {}
+    for i, j in combinations(range(n_agents), 2):
+        logits_i = logits[:, i, :]
+        logits_j = logits[:, j, :]  
+
+        pi_i = F.log_softmax(logits_i, dim=-1)
+        pi_j = F.softmax(logits_j, dim=-1)
+        kl_ij = F.kl_div(pi_i, pi_j, reduction="batchmean", log_target=False)
+
+        pi_j_log = F.log_softmax(logits_j, dim=-1)
+        pi_i_prob = F.softmax(logits_i, dim=-1)
+        kl_ji = F.kl_div(pi_j_log, pi_i_prob, reduction="batchmean", log_target=False)
+
+        symmetric_kl = 0.5 * (kl_ij + kl_ji)
+        distances[f"KL_agent_{i}_{j}"] = symmetric_kl.item()
+
+    return distances
+
+

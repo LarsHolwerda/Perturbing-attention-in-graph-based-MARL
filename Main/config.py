@@ -54,7 +54,7 @@ def parse_training_args():
     parser.add_argument(
         "--env-steps-per-batch",
         type=int,
-        default=1000,
+        default=500,
         help="Number of frames collected per training iteration"
     )
     parser.add_argument(
@@ -112,7 +112,7 @@ def parse_training_args():
     parser.add_argument(
         "--entropy-eps",
         type=float,
-        default=0.0,
+        default=0.0001,
         help="Entropy coefficient in PPO loss"
     )
 
@@ -134,7 +134,7 @@ def parse_training_args():
     parser.add_argument(
         "--record-steps",
         type=int,
-        default=1000,
+        default=200000,
         help="Number of steps between video recordings"
     )
 

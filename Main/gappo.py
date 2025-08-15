@@ -1,11 +1,23 @@
+# Torch
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+import numpy as np
+import torch.autograd as autograd
+from torch import TensorType
+
+from torch_geometric.data import Batch
+from torch_geometric.data.data import Data
+from torch_geometric import utils as geo_utils
+from torch_geometric.nn.conv import GATv2Conv
+from torch_geometric.utils import unbatch, unbatch_edge_index, to_edge_index
+
 # Utils
 from utils import apply_orthogonal_init, log_metrics, record_video, upload_videos_to_wandb, compute_behavioral_diversity
 
-# Torch
-import torch
-
 # Tensordict modules
 from tensordict.nn import TensorDictModule
+from tensordict import TensorDict
 from torch.distributions import Categorical
 
 # Data collection
@@ -26,35 +38,191 @@ import time
 
 
 
+def create_geo_batch(m_obs, m_adj):
+    """
+      m_obs: [batch_size, n_agents, embedding_dim] batch of observations of agents
+      m_adj: [batch_size, n_agents, n_agents] batch of adjacency matrices
+    """
+    # extract batch_size from m_obs:
+    batch_size = m_obs.shape[0]
+    # list of Data objects that will be converted into a Pytorch Geometric batch
+    data_lst = []
+    for i in range(batch_size):
+        # extract observation of sample
+        sample_obs = m_obs[i]
+        # extract adjacency of sample
+        sample_adj = m_adj[i]
+        # convert adjacency matrix to sparse COO format
+        sample_adj, _ = geo_utils.dense_to_sparse(sample_adj)
+        # create Pytorch Geometric data object
+        d = Data(x=sample_obs, edge_index=sample_adj)
+        data_lst.append(d)
+    # create a batch from the list of Data objects
+    batch = Batch.from_data_list(data_lst)
+    return batch
 
 
-class IPPO:
+class MLPEncoder(nn.Module):
+    """
+        Encoder: creates embedding of node observations
+    """
+    def __init__(self, input_features, embedding_dim=128):
+        super(MLPEncoder, self).__init__()
+        self.mlp_encoder = nn.Linear(in_features=input_features, out_features=embedding_dim)
+
+    def forward(self, x):
+        """
+            x: Tensor([batch_size, observation_shape]) observation of an agent
+
+            returns: x: Tensor([batch_size, embedding_dim]) embedded observations of agent
+        """
+        # encode the received observation with MLP
+        x = F.relu(self.mlp_encoder(x))
+        # return embedded observation of agent
+        return x
+
+
+class GATLayer(nn.Module):
+    """
+        Graph Attention convolution mechanism: Creates latent features by combining agent's observations with
+        observations of neighbors
+    """
+    def __init__(self, embedding_dim=128, heads=8):
+        super(GATLayer, self).__init__()
+        # Initialize GAT-layer
+        self.gat_layer = GATv2Conv(embedding_dim, embedding_dim, heads=heads, concat=False)
+
+    def forward(self, x, edge_index):
+        """
+            x: Tensor([n_agents, embedding_dim]): each agent is seen as a node in the graph with it's embedding as the
+                node feature
+            edge_index: Tensor(): the topology of the 'x' graph. The nodes of communicating agents are connected with
+                each other
+
+            returns: latent_features, att_weights: computed latent features and attention weights
+        """
+        # create latent features and attention weights
+        latent_features, att_weights = self.gat_layer(x, edge_index, return_attention_weights=True)
+        return latent_features, att_weights
+
+
+class ActionLayer(nn.Module):
+    """
+        Action Layer: computes actions based on created latent features
+    """
+    def __init__(self, embedding_dim=128, num_actions=19):
+        super(ActionLayer, self).__init__()
+        # linear layer computes logits based on the latent features
+        self.fc = nn.Linear(in_features=embedding_dim*2, out_features=num_actions)
+
+    def forward(self, i1, i2):
+        x = torch.cat([i1, i2], dim=-1)
+        # compute logits based on latent features
+        logits = self.fc(x)
+        # return computed logits
+        return logits
+
+
+class Init_GAPPO(nn.Module):
+    def __init__(self, num_outputs, n_agents, input_features, hidden_dim=128, save_weights=False):
+        super().__init__()
+
+        self.n_agents = n_agents
+        self.input_features = input_features
+        self.hidden_dim = hidden_dim
+        self.num_outputs = num_outputs
+
+        # Layers
+        self.encoder = MLPEncoder(input_features=self.input_features, embedding_dim=self.hidden_dim)
+        self.gat = GATLayer(embedding_dim=self.hidden_dim, heads=8)
+        self.action_layer = ActionLayer(embedding_dim=self.hidden_dim, num_actions=self.num_outputs)
+        self.value_proc = lambda i1, i2: torch.cat([i1, i2], dim=-1)
+        self.value_branch = nn.Linear(self.hidden_dim * 2, 1)
+
+
+    def forward(self, global_obs, adj):
+        """
+        Inputs:
+            global_obs: Tensor [B, N, obs_dim]
+            adj:        Tensor [B, N, N]
+
+        Returns:
+            logits:     Tensor [B, N, num_actions]
+            values:     Tensor [B, N, 1]
+        """
+        if global_obs.dim() == 2:
+            global_obs = global_obs.unsqueeze(0)
+        B, N, obs_dim = global_obs.shape
+        assert N == self.n_agents
+
+        # Create adjacency matrix, its a fully connected graph
+        adj = torch.ones(B, N, N, device=global_obs.device)
+        
+
+        # 1. Encode observations using MLP encoder
+        encoded = self.encoder(global_obs)
+
+        # 2. Enable agent communication with GAT-layer
+        geo_batch = create_geo_batch(encoded, adj)
+        rel, _ = self.gat(geo_batch.x, geo_batch.edge_index)
+        rel_unbatched = torch.stack(unbatch(rel, geo_batch.batch))  # [B, N, hidden_dim]
+
+        # 3. Compute action probabilities based on the latent features
+        logits = self.action_layer(encoded, rel_unbatched)  # [B, N, num_actions]
+        logits = logits.reshape(-1, self.num_outputs)  # [B * N, num_actions]
+        values = self.value_branch(self.value_proc(encoded, rel_unbatched))  # [B, N, 1]
+        values = values.reshape(-1, 1) # [B * N, 1]
+    
+        return logits, values
+
+class ActorHead(nn.Module):
+    def __init__(self, base_model, n_agents):
+        super().__init__()
+        self.base_model = base_model
+        self.n_agents = n_agents
+
+    def forward(self, obs, adj):
+        logits, _ = self.base_model(obs, adj)
+        batch_shape = obs.shape[:-1] 
+        
+        if logits.dim() == 2 and logits.shape[0] == batch_shape.numel():
+            logits = logits.view(*batch_shape, -1)
+        return logits
+
+class CriticHead(nn.Module):
+    def __init__(self, base_model, n_agents):
+        super().__init__()
+        self.base_model = base_model
+        self.n_agents = n_agents
+
+    def forward(self, obs, adj):
+        _, values = self.base_model(obs, adj)
+        batch_shape = obs.shape[:-1]  
+        
+        if values.dim() == 2 and values.shape[0] == batch_shape.numel():
+            values = values.view(*batch_shape, -1)  
+        return values
+
+
+class GAPPO:
     def __init__(self, env, args):
         self.args = args
         self.env = env
         self.device = args.device
         self.global_step = 0
 
-        self.policy_net = MultiAgentMLP(
-        n_agent_inputs=env.observation_spec["player", "observation"].shape[-1],  # n_obs_per_agent
-        n_agent_outputs=19,  # n_actions_per_agents
-        n_agents=args.n_agents,
-        centralised=False,  # the policies are decentralised (ie each agent will act from its observation)
-        share_params=False,
-        device=args.device,
-        depth=3,
-        num_cells=[256, 128, 64],
-        activation_class=torch.nn.ReLU,
+        self.base_model = Init_GAPPO(
+            num_outputs=19, 
+            n_agents=args.n_agents,
+            input_features=env.observation_spec["player", "observation"].shape[-1],
         )
-        apply_orthogonal_init(self.policy_net)
-
 
         policy_module = TensorDictModule(
-            self.policy_net,
-            in_keys=[("player", "observation")],
+            module=ActorHead(self.base_model, self.args.n_agents),
+            in_keys=[("player", "observation"), ("player", "adjacency")],
             out_keys=[("player", "logits")],
         )
-
+        
         self.policy = ProbabilisticActor(
             module=policy_module,
             spec=env.action_spec_unbatched,
@@ -64,26 +232,11 @@ class IPPO:
             return_log_prob=True,
         )  # we'll need the log-prob for the PPO loss
 
-
-        critic_net = MultiAgentMLP(
-            n_agent_inputs=env.observation_spec["player", "observation"].shape[-1],
-            n_agent_outputs=1,  # 1 value per agent
-            n_agents=args.n_agents,
-            centralised=False,
-            share_params=False,
-            device=args.device,
-            depth=3,
-            num_cells=[256, 128, 64],
-            activation_class=torch.nn.ReLU,
-        )
-        apply_orthogonal_init(critic_net)
-
-        self.critic = TensorDictModule(
-            module=critic_net,
-            in_keys=[("player", "observation")],
+        critic_module = TensorDictModule(
+            module=CriticHead(self.base_model, self.args.n_agents),
+            in_keys=[("player", "observation"), ("player", "adjacency")],
             out_keys=[("player", "state_value")],
         )
-
 
         self.collector = SyncDataCollector(
             env,
@@ -104,7 +257,7 @@ class IPPO:
 
         self.loss_module = ClipPPOLoss(
             actor_network=self.policy,
-            critic_network=self.critic,
+            critic_network=critic_module,
             clip_epsilon=args.clip_epsilon,
             entropy_coef=args.entropy_eps,
             normalize_advantage=False,  # Important to avoid normalizing across the agent dimension
@@ -142,7 +295,7 @@ class IPPO:
             steps_in_batch = tensordict_data.batch_size[0]
 
             self.global_step += steps_in_batch
-
+            
             tensordict_data.set(
                 ("next", "player", "done"),
                 tensordict_data.get(("next", "done"))
@@ -155,7 +308,7 @@ class IPPO:
                 .unsqueeze(-1)
                 .expand(tensordict_data.get_item_shape(("next", self.env.reward_key))),
             )
-            
+        
             # We need to expand the done and terminated to match the reward shape (this is expected by the value estimator)
             gae_start = time.time()
             with torch.no_grad():
@@ -212,7 +365,7 @@ class IPPO:
                     }
                     log_metrics(inner_metrics, step=self.global_step, use_wandb=self.args.track)
                     # Logging diversity metrics
-                    get_diversity_metrics = compute_behavioral_diversity(subdata, self.device, self.policy_net)
+                    get_diversity_metrics = compute_behavioral_diversity(subdata)
                     diversity_metrics = {f"diversity/{k}": v for k, v in get_diversity_metrics.items()}
                     log_metrics(diversity_metrics, step=self.global_step, use_wandb=self.args.track)
 
@@ -252,4 +405,5 @@ class IPPO:
 
         # Save the trained policy
         torch.save(self.policy.state_dict(), "trained_policies/ippo_policy.pt")
-         
+
+    

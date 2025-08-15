@@ -3,8 +3,9 @@ mp.set_start_method("spawn", force=True)
 import torch
 from tensordict.nn import set_composite_lp_aggregate
 from config import parse_training_args
-from env import create_env, create_render_env
+from env import create_env
 from ippo import IPPO
+from gappo import GAPPO
 
 # Set seed
 torch.manual_seed(0)
@@ -32,7 +33,7 @@ if args.track:
 env = create_env() 
 
 # Set algorithm to train on
-trainer = IPPO(env, args)
+trainer = GAPPO(env, args)
 
 # Train the policy
 trainer.train()
