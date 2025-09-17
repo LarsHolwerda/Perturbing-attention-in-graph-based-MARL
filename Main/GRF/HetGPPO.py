@@ -86,89 +86,61 @@ def get_edge_index_from_topology(topology_type: str, n_agents: int):
     return edge_index
 
 
-class RelVel(BaseTransform):
-    def __init__(self):
-        pass
 
-    def __call__(self, data):
-        (row, col), vel, pseudo = data.edge_index, data.vel, data.edge_attr
+def parse_simplev1(obs, n1, n2):
+    """Parse simplev1 observation for one agent into positions/velocities."""
+    idx = 0
+    
+    # ----- SELF -----
+    self_pos = obs[idx:idx+2]  # absolute position
+    idx += 2
+    self_vel = obs[idx:idx+2]  # absolute velocity
+    idx += 2
+    self_status = obs[idx:idx+2]  # sprinting, dribbling
+    idx += 2
 
-        cart = vel[row] - vel[col]
-        cart = cart.view(-1, 1) if cart.dim() == 1 else cart
+    # ----- RELATIVE POSITIONS -----
+    rel_pos_teammates = obs[idx: idx + 2*(n1-1)].reshape(n1-1, 2)
+    idx += 2*(n1-1)
+    rel_pos_opponents = obs[idx: idx + 2*n2].reshape(n2, 2)
+    idx += 2*n2
+    rel_pos_ball = obs[idx:idx+2]  # relative to ball
+    idx += 2
 
-        if pseudo is not None:
-            pseudo = pseudo.view(-1, 1) if pseudo.dim() == 1 else pseudo
-            data.edge_attr = torch.cat([pseudo, cart.type_as(pseudo)], dim=-1)
-        else:
-            data.edge_attr = cart
+    # ----- ABSOLUTE POSITIONS -----
+    abs_pos_teammates = obs[idx: idx + 2*(n1-1)].reshape(n1-1, 2)
+    idx += 2*(n1-1)
+    abs_vel_teammates = obs[idx: idx + 2*(n1-1)].reshape(n1-1, 2)
+    idx += 2*(n1-1)
+    abs_pos_opponents = obs[idx: idx + 2*n2].reshape(n2, 2)
+    idx += 2*n2
+    abs_vel_opponents = obs[idx: idx + 2*n2].reshape(n2, 2)
+    idx += 2*n2
 
-        return data
+    # ----- BALL -----
+    ball_pos = obs[idx:idx+3]   # absolute
+    idx += 3
+    ball_vel = obs[idx:idx+3]   # absolute
+    idx += 3
 
-def split_obs(obs: Tensor):
-    pos = obs[..., 0:2]      # shape (B, N, 2)
-    vel = obs[..., 2:4]      # shape (B, N, 2)
-    non_spatial = obs[..., 4:]  # shape (B, N, rest)
-    return non_spatial, pos, vel
+    # The rest is one-hot encodings (ownership, game mode, active player)
+    extra = obs[idx:]
 
-def batch_from_rllib_to_ptg(
-    x : Tensor = None,
-    pos: Tensor = None,
-    vel: Tensor = None,
-    edge_index: Tensor = None,
-    comm_radius: float = -1,
-    rel_pos: bool = True,
-    distance: bool = True,
-    rel_vel: bool = True,
-) -> torch_geometric.data.Batch:
-    batch_size = x.shape[0]
-    n_agents = x.shape[1]
-
-    x = x.reshape(-1, x.shape[-1])
-    if pos is not None:
-        pos = pos.reshape(-1, pos.shape[-1])
-    if vel is not None:
-        vel = vel.reshape(-1, vel.shape[-1])
-
-    assert (edge_index is None or comm_radius < 0) and (
-        edge_index is not None or comm_radius > 0
-    )
-
-    b = torch.arange(batch_size, device=x.device)
-
-    graphs = torch_geometric.data.Batch()
-    graphs.ptr = torch.arange(0, (batch_size + 1) * n_agents, n_agents)
-    graphs.batch = torch.repeat_interleave(b, n_agents)
-    graphs.pos = pos
-    graphs.vel = vel
-    graphs.x = x
-    graphs.edge_attr = None
-
-    if edge_index is not None:
-        n_edges = edge_index.shape[1]
-        # Tensor of shape [batch_size * n_edges]
-        # in which edges corresponding to the same graph have the same index.
-        batch = torch.repeat_interleave(b, n_edges)
-        # Edge index for the batched graphs of shape [2, n_edges * batch_size]
-        # we sum to each batch an offset of batch_num * n_agents to make sure that
-        # the adjacency matrices remain independent
-        batch_edge_index = edge_index.repeat(1, batch_size) + batch * n_agents
-        graphs.edge_index = batch_edge_index
-    else:
-        assert pos is not None
-        graphs.edge_index = torch_geometric.nn.pool.radius_graph(
-            graphs.pos, batch=graphs.batch, r=comm_radius, loop=False
-        )
-
-    graphs = graphs.to(x.device)
-
-    if pos is not None and rel_pos:
-        graphs = torch_geometric.transforms.Cartesian(norm=False)(graphs)
-    if pos is not None and distance:
-        graphs = torch_geometric.transforms.Distance(norm=False)(graphs)
-    if vel is not None and rel_vel:
-        graphs = RelVel()(graphs)
-
-    return graphs
+    return {
+        "self_pos": self_pos,
+        "self_vel": self_vel,
+        "self_status": self_status,
+        "rel_pos_teammates": rel_pos_teammates,
+        "rel_pos_opponents": rel_pos_opponents,
+        "rel_pos_ball": rel_pos_ball,
+        "abs_pos_teammates": abs_pos_teammates,
+        "abs_vel_teammates": abs_vel_teammates,
+        "abs_pos_opponents": abs_pos_opponents,
+        "abs_vel_opponents": abs_vel_opponents,
+        "ball_pos": ball_pos,
+        "ball_vel": ball_vel,
+        "extra": extra
+    }
 
 
 class MatPosConv(MessagePassing):
@@ -399,7 +371,7 @@ class GPPOBranch(nn.Module):
                 )
 
         else:
-            graph = batch_from_rllib_to_ptg(
+            graph_dict = parse_simplev1(
                 x=obs,
                 pos=pos,
                 vel=vel,
@@ -410,11 +382,14 @@ class GPPOBranch(nn.Module):
             if self.hetero_gnns:
                 embedding = torch.stack(
                     [
-                        gnn(graph.x, graph.edge_index, graph.edge_attr).view(
-                            batch_size,
-                            self.n_agents,
-                            self.hidden_size,
-                        )[:, i]
+                        gnn(graph_dict["x"],
+                            graph_dict["edge_index"],
+                            graph_dict["edge_attr"],
+                            ).view(
+                                batch_size,
+                                self.n_agents,
+                                self.hidden_size,
+                            )[:, i]
                         for i, gnn in enumerate(self.gnns)
                     ],
                     dim=1,
@@ -422,9 +397,9 @@ class GPPOBranch(nn.Module):
 
             else:
                 embedding = self.gnns[0](
-                    graph.x,
-                    graph.edge_index,
-                    graph.edge_attr,
+                    graph_dict["x"],
+                    graph_dict["edge_index"],
+                    graph_dict["edge_attr"],
                 ).view(batch_size, self.n_agents, self.hidden_size)
 
         if self.hetero_decoders:
@@ -497,25 +472,26 @@ import time
 
 
 
-class IPPO:
+class HetGPPO:
     def __init__(self, env, args):
         self.args = args
         self.env = env
         self.device = args.device
         self.global_step = 0
 
-        policy_net = MultiAgentMLP(
-        n_agent_inputs=env.observation_spec["player", "observation"].shape[-1],  # n_obs_per_agent
-        n_agent_outputs=19,  # n_actions_per_agents
-        n_agents=args.n_agents,
-        centralised=False,  # the policies are decentralised (ie each agent will act from its observation)
-        share_params=False,
-        device=args.device,
-        depth=3,
-        num_cells=[256, 128, 64],
-        activation_class=torch.nn.ReLU,
+        policy_net = GPPOBranch(
+            in_features=env.observation_spec["player", "observation"].shape[-1],
+            out_features=19,
+            edge_features=d,
+            n_agents=args.n_agents,
+            centralised=False,
+            edge_index=get_edge_index_from_topology("full", args.n_agents),
+            comm_radius_processed=None,
+            activation_fn="relu",
+            gnn_type="MatPosConv",
+            aggr="mean",
+            heterogeneous=True,
         )
-        apply_orthogonal_init(policy_net)
 
 
         policy_module = TensorDictModule(
@@ -719,5 +695,5 @@ class IPPO:
             pbar.update()
 
         # Save the trained policy
-        torch.save(self.policy.state_dict(), "trained_policies/ippo_policy.pt")
+        torch.save(self.policy.state_dict(), "trained_policies/hetgppo_policy.pt")
          

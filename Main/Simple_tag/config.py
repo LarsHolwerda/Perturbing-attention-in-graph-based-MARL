@@ -13,13 +13,20 @@ def parse_training_args():
     parser.add_argument(
         "--exp-name", 
         type=str, 
-        default="IPPO",
+        default="GAPPO",
         help="the name of this experiment")
     
     parser.add_argument(
+        "--mappo", 
+        type=bool,
+        default=False,
+        help="Whether to use MAPPO"
+    )
+
+    parser.add_argument(
         "--env-id", 
         type=str, 
-        default="academy_3_v_1_with_keeper",
+        default="simple_tag",
         help="the id of the environment")
     
     # Device configuration
@@ -40,7 +47,7 @@ def parse_training_args():
     parser.add_argument(
         "--wandb-project-name", 
         type=str, 
-        default="Google Research Football",
+        default="Simple Tag",
         help="the wandb's project name"
     )
     parser.add_argument(
@@ -54,13 +61,13 @@ def parse_training_args():
     parser.add_argument(
         "--env-steps-per-batch",
         type=int,
-        default=500,
+        default=8000,
         help="Number of frames collected per training iteration"
     )
     parser.add_argument(
         "--n-iters",
         type=int,
-        default=10,
+        default=1000,
         help="Number of sampling and training iterations"
     )
 
@@ -68,25 +75,25 @@ def parse_training_args():
     parser.add_argument(
         "--num-epochs",
         type=int,
-        default=15,
+        default=5,
         help="Number of optimization steps per training iteration"
     )
     parser.add_argument(
         "--minibatch-size",
         type=int,
-        default=500,
+        default=1000,
         help="Size of mini-batches in each optimization step"
     )
     parser.add_argument(
         "--learning-rate",
         type=float,
-        default=5e-4,
+        default=3e-5,
         help="Learning rate"
     )
     parser.add_argument(
         "--max-grad-norm",
         type=float,
-        default=10.0,
+        default=5.0,
         help="Maximum norm for gradients"
     )
 
@@ -112,29 +119,58 @@ def parse_training_args():
     parser.add_argument(
         "--entropy-eps",
         type=float,
-        default=0.0001,
+        default=0.05,
         help="Entropy coefficient in PPO loss"
     )
 
     # Episode / Env
     parser.add_argument(
-        "--max-steps",
+        "--max-cycles",
         type=int,
-        default=100,
+        default=250,
         help="Max episode steps before done"
     )
+
     parser.add_argument(
-        "--n-agents",
+        "--n-good",
         type=int,
-        default=3,
-        help="Number of agents in the environment"
+        default=1,
+        help="Number of good agents in the environment"
+    )
+
+    parser.add_argument(
+        "--agent-training-steps",
+        type=int,
+        default=3000000,
+        help="Number of training steps to train the good agent"
+    )
+
+    parser.add_argument(
+        "--n-adversaries",
+        type=int,
+        default=2,
+        help="Number of adversaries in the environment"
+    )
+
+    parser.add_argument(
+        "--n-obstacles",
+        type=int,
+        default=2,
+        help="Number of obstacles in the environment"
+    )
+
+    parser.add_argument(
+        "--continuous-actions",
+        type=bool,
+        default=True,
+        help="Are the actions discrete or continuous?"
     )
 
     # Recording
     parser.add_argument(
         "--record-steps",
         type=int,
-        default=200000,
+        default=400000,
         help="Number of steps between video recordings"
     )
 
@@ -142,7 +178,7 @@ def parse_training_args():
 
     # Computed fields
     args.total_env_steps = args.env_steps_per_batch * args.n_iters
-    args.num_grf_envs = args.env_steps_per_batch // args.max_steps
+    args.num_tag_envs = args.env_steps_per_batch // args.max_cycles
     args.device = torch.device(0) if (args.use_cuda and not is_fork) else torch.device("cpu")
     print(args.device)
     return args

@@ -4,8 +4,9 @@ import torch
 from tensordict.nn import set_composite_lp_aggregate
 from config import parse_training_args
 from env import create_env
-from ippo import IPPO
 from gappo import GAPPO
+from HetGPPO import HetGPPO
+from ppo import PPO
 
 # Set seed
 torch.manual_seed(0)

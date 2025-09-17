@@ -109,7 +109,7 @@ def compute_behavioral_diversity(subdata):
         pi_i_prob = F.softmax(logits_i, dim=-1)
         kl_ji = F.kl_div(pi_j_log, pi_i_prob, reduction="batchmean", log_target=False)
 
-        symmetric_kl = 0.5 * (kl_ij + kl_ji)
+        symmetric_kl = kl_ij + kl_ji
         distances[f"KL_agent_{i}_{j}"] = symmetric_kl.item()
 
     return distances

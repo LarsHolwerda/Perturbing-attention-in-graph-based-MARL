@@ -3,7 +3,7 @@ Run environment:
 wsl -d Ubuntu-20.04
 cd /mnt/c/Users/lardy/Documents/universiteit/BusinessInformaticsjaar1/Thesis/Project/Hierarchical-graph-based-MARL-for-strategic-and-diverse-coordination/Main
 export LD_PRELOAD=/usr/lib/x86_64-linux-gnu/libffi.so.7 
-conda activate grf_env
+conda activate minimal_thesis
 
 Install guide:
 follow the install guide on https://github.com/xihuai18/gfootball-gymnasium-pettingzoo

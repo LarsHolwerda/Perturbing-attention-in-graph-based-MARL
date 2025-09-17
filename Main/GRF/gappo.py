@@ -68,7 +68,10 @@ class MLPEncoder(nn.Module):
     """
     def __init__(self, input_features, embedding_dim=128):
         super(MLPEncoder, self).__init__()
-        self.mlp_encoder = nn.Linear(in_features=input_features, out_features=embedding_dim)
+        self.layer1 = nn.Linear(input_features, 256)
+        self.layer2 = nn.Linear(256, 128)
+        self.layer3 = nn.Linear(128, embedding_dim)
+        apply_orthogonal_init(self)
 
     def forward(self, x):
         """
@@ -77,7 +80,9 @@ class MLPEncoder(nn.Module):
             returns: x: Tensor([batch_size, embedding_dim]) embedded observations of agent
         """
         # encode the received observation with MLP
-        x = F.relu(self.mlp_encoder(x))
+        x = F.relu(self.layer1(x))
+        x = F.relu(self.layer2(x))
+        x = self.layer3(x)
         # return embedded observation of agent
         return x
 
@@ -113,12 +118,15 @@ class ActionLayer(nn.Module):
     def __init__(self, embedding_dim=128, num_actions=19):
         super(ActionLayer, self).__init__()
         # linear layer computes logits based on the latent features
-        self.fc = nn.Linear(in_features=embedding_dim*2, out_features=num_actions)
+        self.fc1 = nn.Linear(embedding_dim*2, 128)
+        self.fc2 = nn.Linear(128, num_actions)
+        apply_orthogonal_init(self)
 
     def forward(self, i1, i2):
         x = torch.cat([i1, i2], dim=-1)
+        x = F.relu(self.fc1(x))
         # compute logits based on latent features
-        logits = self.fc(x)
+        logits = self.fc2(x)
         # return computed logits
         return logits
 
@@ -137,7 +145,14 @@ class Init_GAPPO(nn.Module):
         self.gat = GATLayer(embedding_dim=self.hidden_dim, heads=8)
         self.action_layer = ActionLayer(embedding_dim=self.hidden_dim, num_actions=self.num_outputs)
         self.value_proc = lambda i1, i2: torch.cat([i1, i2], dim=-1)
-        self.value_branch = nn.Linear(self.hidden_dim * 2, 1)
+        self.value_branch = nn.Sequential(
+            nn.Linear(self.hidden_dim*2, 128),
+            nn.ReLU(),
+            nn.Linear(128, 64),
+            nn.ReLU(),
+            nn.Linear(64, 1)
+        )
+        apply_orthogonal_init(self.value_branch)
 
 
     def forward(self, global_obs, adj):
@@ -404,6 +419,6 @@ class GAPPO:
             pbar.update()
 
         # Save the trained policy
-        torch.save(self.policy.state_dict(), "trained_policies/ippo_policy.pt")
+        torch.save(self.policy.state_dict(), "trained_policies/gappo_policy.pt")
 
     

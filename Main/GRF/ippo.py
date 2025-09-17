@@ -37,7 +37,7 @@ class IPPO:
 
         self.policy_net = MultiAgentMLP(
         n_agent_inputs=env.observation_spec["player", "observation"].shape[-1],  # n_obs_per_agent
-        n_agent_outputs=19,  # n_actions_per_agents
+        n_agent_outputs=5,  # n_actions_per_agents
         n_agents=args.n_agents,
         centralised=False,  # the policies are decentralised (ie each agent will act from its observation)
         share_params=False,
@@ -212,7 +212,7 @@ class IPPO:
                     }
                     log_metrics(inner_metrics, step=self.global_step, use_wandb=self.args.track)
                     # Logging diversity metrics
-                    get_diversity_metrics = compute_behavioral_diversity(subdata, self.device, self.policy_net)
+                    get_diversity_metrics = compute_behavioral_diversity(subdata)
                     diversity_metrics = {f"diversity/{k}": v for k, v in get_diversity_metrics.items()}
                     log_metrics(diversity_metrics, step=self.global_step, use_wandb=self.args.track)
 
