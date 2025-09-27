@@ -13,15 +13,8 @@ def parse_training_args():
     parser.add_argument(
         "--exp-name", 
         type=str, 
-        default="GAPPO",
+        default="IGAPPO",
         help="the name of this experiment")
-    
-    parser.add_argument(
-        "--mappo", 
-        type=bool,
-        default=False,
-        help="Whether to use MAPPO"
-    )
 
     parser.add_argument(
         "--env-id", 
@@ -61,13 +54,13 @@ def parse_training_args():
     parser.add_argument(
         "--env-steps-per-batch",
         type=int,
-        default=8000,
+        default=1000,
         help="Number of frames collected per training iteration"
     )
     parser.add_argument(
         "--n-iters",
         type=int,
-        default=1000,
+        default=6000,
         help="Number of sampling and training iterations"
     )
 
@@ -87,7 +80,7 @@ def parse_training_args():
     parser.add_argument(
         "--learning-rate",
         type=float,
-        default=3e-5,
+        default=5e-5,
         help="Learning rate"
     )
     parser.add_argument(
@@ -98,6 +91,13 @@ def parse_training_args():
     )
 
     # PPO
+    parser.add_argument(
+        "--mappo", 
+        type=bool,
+        default=False,
+        help="Whether to use MAPPO"
+    )
+
     parser.add_argument(
         "--clip-epsilon",
         type=float,
@@ -119,8 +119,16 @@ def parse_training_args():
     parser.add_argument(
         "--entropy-eps",
         type=float,
-        default=0.05,
+        default=0.01,
         help="Entropy coefficient in PPO loss"
+    )
+
+    # Gappo
+    parser.add_argument(
+        "--shared-backbone", 
+        type=bool,
+        default=False,
+        help="Whether to use a shared backbone for actor and critic in GAPPO"
     )
 
     # Episode / Env
@@ -129,6 +137,13 @@ def parse_training_args():
         type=int,
         default=250,
         help="Max episode steps before done"
+    )
+
+    parser.add_argument(
+        "--n-agents",
+        type=int,
+        default=3,
+        help="Number of agents in the environment"
     )
 
     parser.add_argument(
@@ -162,7 +177,7 @@ def parse_training_args():
     parser.add_argument(
         "--continuous-actions",
         type=bool,
-        default=True,
+        default=False,
         help="Are the actions discrete or continuous?"
     )
 
