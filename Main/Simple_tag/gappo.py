@@ -139,7 +139,7 @@ class ActionLayer(nn.Module):
 
 
 class Init_GAPPO(nn.Module):
-    def __init__(self, actions, n_agents, input_features, device, hidden_dim=128):
+    def __init__(self, algorithm, actions, n_agents, input_features, device, hidden_dim=128):
         super().__init__()
 
         self.n_agents = n_agents
@@ -148,6 +148,7 @@ class Init_GAPPO(nn.Module):
         self.actions = actions
         self.device = device
         self.adj = create_fully_connected_adj(self.n_agents, self.device)
+        self.algorithm = algorithm
 
         # Layers
         self.encoder = MLPEncoder(input_features=self.input_features, embedding_dim=self.hidden_dim)
@@ -163,7 +164,7 @@ class Init_GAPPO(nn.Module):
         )
 
 
-    def forward(self, global_obs, td=None):
+    def forward(self, global_obs, enc_by_backbone=None, agent_index=None):
         """
         Inputs:
             global_obs: Tensor [B, N, obs_dim]
@@ -175,6 +176,7 @@ class Init_GAPPO(nn.Module):
         """
         if global_obs.dim() == 2:
             global_obs = global_obs.unsqueeze(0)
+
         # ensure shape [B, N, obs_dim] is met (necessary for parallel envs)
         if global_obs.dim() == 4:  # [B, T, N, obs_dim]
             B, T, N, obs_dim = global_obs.shape
@@ -184,19 +186,27 @@ class Init_GAPPO(nn.Module):
         #assert N == self.n_agents        
 
         # 1. Encode observations using MLP encoder
-        encoded = self.encoder(global_obs)
+        if self.algorithm == "GAPPO":
+            encoded = self.encoder(global_obs)
+        elif self.algorithm == "IGAPPO":
+            enc_agents_list = []
+            for agent in range(N):
+                enc_agent = enc_by_backbone[agent]  # encoding of agent
+                if agent != agent_index:
+                    enc_agent = enc_agent.detach()  # block gradient of the other agents
+                enc_agents_list.append(enc_agent)
+            encoded = torch.cat(enc_agents_list, dim=1)  # concatenate all encodings
 
         # 2. Enable agent communication with GAT-layer
         geo_batch = create_geo_batch(encoded, self.adj.unsqueeze(0).expand(B, -1, -1), device=global_obs.device)
         rel, att_weights = self.gat(geo_batch.x, geo_batch.edge_index)
-        rel_unbatched = torch.stack(unbatch(rel, geo_batch.batch))  # [B, N, hidden_dim]
+        rel_unbatched = torch.stack(unbatch(rel, geo_batch.batch))  
 
         # 3. Compute action probabilities based on the latent features
         logits = self.action_layer(encoded, rel_unbatched)  # [B, N, num_actions]
-        logits = logits.reshape(-1, self.actions)  # [B * N, num_actions]
+        logits = logits.reshape(-1, self.actions)  # [B * N, num_actions] avoids the batch dimension mismatch when recording videos
         values = self.value_branch(self.value_proc(encoded, rel_unbatched))  # [B, N, 1]
-        values = values.reshape(-1, 1) # [B * N, 1]
-
+        values = values.reshape(-1, 1) # [B * N, 1] avoids the batch dimension mismatch when recording videos
         return logits, values
 
 class ActorHead(nn.Module):
@@ -210,25 +220,43 @@ class ActorHead(nn.Module):
 
     def forward(self, obs):
         logits, _ = self.base_model(obs)
-        B, N, _ = obs.shape
+        batch_shape = obs.shape[:-1]
         # Reshape logits from B*N, num_actions to B, N, num_actions
-        logits = logits.view(B, N, -1)
+        logits = logits.view(*batch_shape, -1)
         return logits
 
 class IndependentActorHead(nn.Module):
-    def __init__(self, backbones):
+    def __init__(self, base_model):
         super().__init__()
-        self.backbones = backbones
+        self.base_model = base_model
 
-    def forward(self, obs):
+    def forward(self, obs):       
+        add_batch = False # If video recording, we need to add a batch dimension    
+        if obs.ndim == 2:  # [N, obs_dim]
+            obs = obs.unsqueeze(0)  # -> [1, N, obs_dim]
+            add_batch = True 
+
         B, N, _ = obs.shape
+        
+        # Encode observations using encoder of each backbone
+        enc_by_backbone = []
+        for agent, net in enumerate(self.base_model):
+            obs_agent = obs[:, agent:agent+1, :] # Use only the observation of the specific agent to get encoding from current backbone
+            enc_agent = net.encoder(obs_agent)         
+            enc_by_backbone.append(enc_agent)
+
         logits = []
         # Loop over agents and their network to get individual logits
-        for agent, network in enumerate(self.backbones):
-            logits_agent, _ = network(obs[:, agent:agent+1])     # [B, 1, actions] Use only the observation of the specific agent to get logits from backbone
-            logits.append(logits_agent)
-        # Concatenate logits of all agents [B*N, 1, actions] and reshape to [B, N, actions]
-        logits = torch.cat(logits, dim=0).view(B, N, -1)
+        for agent, network in enumerate(self.base_model):
+            logits_agent, _ = network(obs, enc_by_backbone, agent)
+            logits_agent = logits_agent.view(B, N, -1)
+            logits.append(logits_agent[:, agent:agent+1])  # Append only the logits of the specific agent, i:i+1 keeps the agent dimension [B, 1, actions]
+        # Concatenate logits of all agents along the agent dimension [B, N, actions]
+        logits = torch.cat(logits, dim=1)
+
+        if add_batch:
+            logits = logits.squeeze(0)  
+        
         return logits
     
 
@@ -238,30 +266,47 @@ class CriticHead(nn.Module):
         self.base_model = base_model
 
     def forward(self, obs):
-        _, values = self.base_model(obs)  
-        batch_shape = obs.shape[:-1]
-        values = values.view(*batch_shape, -1)
-        return values
-
-class IndependentCriticHead(nn.Module):
-    def __init__(self, base_models):
-        super().__init__()
-        self.base_models = base_models
-
-    def forward(self, obs):
         if obs.dim() == 4:  # [B, T, N, obs_dim]
             B, T, N, obs_dim = obs.shape
             obs = obs.view(B * T, N, obs_dim)  # [B*T, N, obs_dim]
             batch_shape = (B, T, N)
         else:
             batch_shape = obs.shape[:-1]
+            B, N, _ = obs.shape
+        _, values = self.base_model(obs)  
+        return values.view(*batch_shape, 1)
+
+class IndependentCriticHead(nn.Module):
+    def __init__(self, base_model):
+        super().__init__()
+        self.base_model = base_model
+
+    def forward(self, obs):
+        has_time_dim = obs.dim() == 4  
+        if has_time_dim:  # [B, T, N, obs_dim]
+            B, T, N, obs_dim = obs.shape
+            obs = obs.view(B * T, N, obs_dim)  # [B*T, N, obs_dim]
+        else:
+            B, N, _ = obs.shape
+        
+        enc_by_backbone = []
+        for agent, net in enumerate(self.base_model):
+            obs_agent = obs[:, agent:agent+1, :] 
+            enc_agent = net.encoder(obs_agent)         
+            enc_by_backbone.append(enc_agent)
         values = []
+
         # Loop over agents and their network to get individual values
-        for agent, network in enumerate(self.base_models):
-            _, value_agent = network(obs[:, agent:agent+1])     # [B, 1, 1] Use only the observation of the specific agent to get value from backbone
-            values.append(value_agent)
-        # Concatenate values of all agents [B*N, 1, 1] and reshape to [B, N, 1]
-        values = torch.cat(values, dim=0).view(*batch_shape, -1)
+        for agent, network in enumerate(self.base_model):
+            _, value_agent = network(obs, enc_by_backbone, agent)     # [B, 1, 1] Use only the observation of the specific agent to get value from backbone
+            value_agent = value_agent.view(-1, N, 1)
+            values.append(value_agent[:, agent:agent+1])  # Append only the value of the specific agent, agent:agent+1 keeps the agent dimension [B, 1, 1]
+        # Concatenate values of all agents along the agent dimension [B, N, 1]
+        values = torch.cat(values, dim=1)
+        if has_time_dim:  # has T
+            values = values.view(B, T, N, 1)
+        else:
+            values = values.view(B, N, 1)
         return values
 
 class GAPPO(Train):
@@ -289,6 +334,7 @@ class GAPPO(Train):
             if args.shared_backbone:
                 # Shared backbone
                 backbone = Init_GAPPO(
+                    algorithm="GAPPO",
                     actions=actions,
                     n_agents=n_agents,
                     input_features=obs_size,
@@ -301,8 +347,9 @@ class GAPPO(Train):
             else:
                 backbones = nn.ModuleList([
                     Init_GAPPO(
+                        algorithm="IGAPPO",
                         actions=actions,
-                        n_agents=1,              # each backbone sees only its own obs
+                        n_agents=n_agents,              # each backbone sees only its own obs
                         input_features=obs_size,
                         device=args.device,
                         hidden_dim=128
@@ -311,7 +358,7 @@ class GAPPO(Train):
                 ])
                 for b in backbones: apply_orthogonal_init(b)
 
-                actor_head = IndependentActorHead(backbones)   
+                actor_head = IndependentActorHead(backbones)
 
             # Wrap in tensordict module
             module = TensorDictModule(

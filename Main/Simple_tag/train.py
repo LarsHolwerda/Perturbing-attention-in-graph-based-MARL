@@ -33,7 +33,7 @@ class Train:
                 if torch.cuda.is_available(): torch.cuda.synchronize()
                 collector_time = time.time() - collector_start 
                 tensordict_data = tensordict_data.to(self.args.device)
-                steps_in_batch = tensordict_data.batch_size[0]
+                steps_in_batch = self.args.env_steps_per_batch
                 self.global_step += steps_in_batch
 
                 # We need to expand the done and terminated to match the reward shape (this is expected by the value estimator)
@@ -70,7 +70,7 @@ class Train:
                 buffer_time = time.time() - buffer_start
                 
                 # Logging diversity metrics
-                get_diversity_metrics = compute_behavioral_diversity(tensordict_data)
+                get_diversity_metrics = compute_behavioral_diversity(tensordict_data, self.args.n_adversaries)
                 diversity_metrics = {f"diversity/{k}": v for k, v in get_diversity_metrics.items()}
                 log_metrics(diversity_metrics, step=self.global_step, use_wandb=self.args.track)
 

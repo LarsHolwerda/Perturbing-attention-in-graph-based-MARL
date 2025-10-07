@@ -115,7 +115,7 @@ class PPO(Train):
                 actor_network=policy,
                 critic_network=critic,
                 clip_epsilon=args.clip_epsilon,
-                entropy_coef=args.entropy_eps,
+                entropy_coeff=args.entropy_eps,
                 normalize_advantage=False,  # Important to avoid normalizing across the agent dimension
             )
             # We have to tell the loss where to find the keys

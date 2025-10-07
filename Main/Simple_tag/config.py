@@ -13,7 +13,7 @@ def parse_training_args():
     parser.add_argument(
         "--exp-name", 
         type=str, 
-        default="IGAPPO",
+        default="MAPPO",
         help="the name of this experiment")
 
     parser.add_argument(
@@ -28,6 +28,13 @@ def parse_training_args():
         type=lambda x: bool(strtobool(x)),
         default="False",
         help="Whether to use cuda"
+    )
+
+    parser.add_argument(
+        "--seed",
+        type=int,
+        default=0,
+        help="Random seed"
     )
 
     # Logging
@@ -54,7 +61,7 @@ def parse_training_args():
     parser.add_argument(
         "--env-steps-per-batch",
         type=int,
-        default=1000,
+        default=4000,
         help="Number of frames collected per training iteration"
     )
     parser.add_argument(
@@ -74,13 +81,13 @@ def parse_training_args():
     parser.add_argument(
         "--minibatch-size",
         type=int,
-        default=1000,
+        default=2000,
         help="Size of mini-batches in each optimization step"
     )
     parser.add_argument(
         "--learning-rate",
         type=float,
-        default=5e-5,
+        default=1e-4,
         help="Learning rate"
     )
     parser.add_argument(
@@ -94,7 +101,7 @@ def parse_training_args():
     parser.add_argument(
         "--mappo", 
         type=bool,
-        default=False,
+        default=True,
         help="Whether to use MAPPO"
     )
 
@@ -185,7 +192,7 @@ def parse_training_args():
     parser.add_argument(
         "--record-steps",
         type=int,
-        default=400000,
+        default=40000,
         help="Number of steps between video recordings"
     )
 

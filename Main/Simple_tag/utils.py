@@ -48,11 +48,19 @@ def record_video(multi_agent_policy, algorithm, n_agents, n_adv, device, video_p
     td = env.reset()
     multi_agent_policy.to(device)
     multi_agent_policy.eval()
-    frames = []
+    if algorithm == "IGAPPO":
+        policy = multi_agent_policy[0]  # ProbabilisticActor
+        actor_head = policy.module[0].module  # TensorDictModule -> ActorHead
+        base_models = getattr(actor_head, "base_models", [actor_head.base_model])  
+        init_gappos = list(base_models[0])  # list of Init_GAPPO
+        agent_att_frames = [[] for _ in range(len(init_gappos))]  # one list per agent
     att_frames = []
+    frames = []
     step = 0
 
     while step < max_steps:
+        if step == 249:
+            print("Reached max steps, stopping recording.")
         all_done = True
         for group in env.group_map.keys():
             done = td.get((group, "done")) if (group, "done") in td.keys(True, True) else td.get("done")
@@ -75,7 +83,15 @@ def record_video(multi_agent_policy, algorithm, n_agents, n_adv, device, video_p
                 edge_index, att_values = base_model.gat.last_att_weights # access the last attention weights from the GAT in the base model
                 att_frame = att_to_frame(edge_index, att_values, n_agents=n_agents, n_adv=n_adv) # convert attention weights to frames
                 att_frames.append(att_frame) 
-        
+
+            if algorithm == "IGAPPO":
+            # To capture attention we need to access last_att_weights from GAT
+                for agent, init_gappo in enumerate(init_gappos):
+                    edge_index, att_values = init_gappo.gat.last_att_weights
+                    att_frame = att_to_frame(edge_index, att_values, n_agents=n_agents, n_adv=n_adv)
+                    agent_att_frames[agent].append(att_frame)
+
+
         # put the actions back into the tensordict
         agent_action = td_actions.get(("agent", "action")).cpu()
         adv_action = td_actions.get(("adversary", "action")).cpu()
@@ -83,7 +99,10 @@ def record_video(multi_agent_policy, algorithm, n_agents, n_adv, device, video_p
         td.set(("adversary", "action"), adv_action)
         # step the env with the updated CPU td
         td = env.step(td)
-        td = td.get("next")  
+        td = td.get("next") 
+        if td is None:
+            print("td is None, breaking loop")
+             
         frame = env.render()
         if frame is not None:
             frames.append(frame)
@@ -95,15 +114,20 @@ def record_video(multi_agent_policy, algorithm, n_agents, n_adv, device, video_p
     # Save as MP4
     imageio.mimwrite(video_path, frames, fps=10)
     print(f"Video saved to {video_path}")
-    # Save attention video if GAPPO
     if algorithm == "GAPPO":
         att_path = video_path.replace(".mp4", "_att.mp4")
         imageio.mimwrite(att_path, att_frames, fps=10)
-        print(f"Video saved to {att_path}")
+        print(f"Attention video saved to {att_path}")
+    # Save attention video if IGAPPO
+    if algorithm == "IGAPPO":
+        for agent, frames_list in enumerate(agent_att_frames):
+            att_path = video_path.replace(".mp4", f"_att_{agent}.mp4")
+            imageio.mimwrite(att_path, frames_list, fps=10)
+            print(f"Video saved to {att_path}")
 
 def upload_videos_to_wandb(video_dir="./traces", scenario=None, algorithm=None, step=0):
     video_paths = glob.glob(f"{video_dir}/*.mp4")  
-    output_name = f"{scenario}__{algorithm}__step_{step}"
+    output_name = f"{scenario}__{algorithm}"
     for mp4_path in video_paths:
         try:
             wandb.log(
@@ -117,14 +141,13 @@ def upload_videos_to_wandb(video_dir="./traces", scenario=None, algorithm=None, 
             print(f"Failed to upload or delete {mp4_path}: {e}")
 
 
-def compute_behavioral_diversity(subdata):
+def compute_behavioral_diversity(subdata, n_adversaries):
     logits = subdata.get(("adversary", "logits"))
-    n_agents = logits.shape[1]
 
     distances = {}
-    # Loop over all unique pairs of agents
-    for i, j in combinations(range(n_agents), 2):
-        # Select logits for agents i and j
+    # Loop over all unique pairs of adversaries
+    for i, j in combinations(range(n_adversaries), 2):
+        # Select logits for adversaries i and j
         logits_i = logits[:, i, :]
         logits_j = logits[:, j, :]  
         # Compute KL divergence i to j

@@ -10,7 +10,7 @@ args = parse_training_args()
 
 
 # Create Pettingzoo parallel env for training
-def create_env():
+def create_env(seed=None):
     base_env = simple_tag_v3.parallel_env(num_good=args.n_good, 
                     num_adversaries=args.n_adversaries, 
                     num_obstacles=args.n_obstacles,
@@ -18,6 +18,8 @@ def create_env():
                     continuous_actions=args.continuous_actions,
                     dynamic_rescaling=False
                 )
+    if seed is not None: 
+        base_env.reset(seed=seed)
     env = PettingZooWrapper(base_env)
     #print(env.observation_spec["agent", "observation"])
     #print(env.input_spec["full_action_spec"])
