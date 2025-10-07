@@ -17,6 +17,12 @@ def parse_training_args():
         help="the name of this experiment")
 
     parser.add_argument(
+        "--algorithm", 
+        type=str, 
+        default="MAPPO",
+        help="the algorithm which will be trained")
+
+    parser.add_argument(
         "--env-id", 
         type=str, 
         default="simple_tag",
@@ -25,9 +31,16 @@ def parse_training_args():
     # Device configuration
     parser.add_argument(
         "--use-cuda",
-        type=lambda x: bool(strtobool(x)),
-        default="False",
+        type=bool,
+        default=False,
         help="Whether to use cuda"
+    )
+
+    parser.add_argument(
+        "--number-of-workers",
+        type=int,
+        default=2,
+        help="Number of parallel workers"
     )
 
     parser.add_argument(

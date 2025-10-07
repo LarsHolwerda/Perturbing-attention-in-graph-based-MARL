@@ -482,7 +482,7 @@ class HetGPPO:
         policy_net = GPPOBranch(
             in_features=env.observation_spec["player", "observation"].shape[-1],
             out_features=19,
-            edge_features=d,
+            edge_features=4,
             n_agents=args.n_agents,
             centralised=False,
             edge_index=get_edge_index_from_topology("full", args.n_agents),

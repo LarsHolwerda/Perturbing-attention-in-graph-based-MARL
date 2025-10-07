@@ -5,7 +5,7 @@ from torchrl.envs.utils import check_env_specs
 from torchrl.envs import PettingZooWrapper
 
 # Get command line arguments
-from config import parse_training_args  
+from config.config import parse_training_args  
 args = parse_training_args()
 
 

@@ -8,7 +8,6 @@ import torch.nn.functional as F
 # Environment
 from env import create_render_env
 # Utils
-from tensordict import TensorDict
 import numpy as np
 from itertools import combinations
 import imageio
