@@ -13,18 +13,16 @@
 echo "Starting job on $(hostname) at $(date)"
 
 # Load conda environment
-source ~/.bashrc
-conda activate simple_tag
 
 cd /scratch/7990537/Hierarchical-graph-based-MARL-for-strategic-and-diverse-coordination/Main/Simple_tag
 
-python main.py --exp-name "MAPPO" \
+/scratch/7990537/conda/simple_tag/bin/python main.py --exp-name "MAPPO" \
                --algorithm "MAPPO" \
                --env-id "simple_tag" \
                --use-cuda False \
                --number-of-workers 16 \
                --seed 0 \
-               --track True \
+                --track True \
                --wandb-project-name "Simple Tag" \
                --wandb-entity "lars-holwerda-utrecht-university" \
                --env-steps-per-batch 60000 \
@@ -45,3 +43,5 @@ python main.py --exp-name "MAPPO" \
                --n-obstacles 2 \
                --continuous-actions False \
                --record-steps 100000
+
+echo "Job finished at $(date)"

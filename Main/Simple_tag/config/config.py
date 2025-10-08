@@ -31,7 +31,7 @@ def parse_training_args():
     # Device configuration
     parser.add_argument(
         "--use-cuda",
-        type=bool,
+        type=lambda x: bool(strtobool(x)),
         default=False,
         help="Whether to use cuda"
     )
@@ -113,7 +113,7 @@ def parse_training_args():
     # PPO
     parser.add_argument(
         "--mappo", 
-        type=bool,
+        type=lambda x: bool(strtobool(x)),
         default=True,
         help="Whether to use MAPPO"
     )
@@ -146,7 +146,7 @@ def parse_training_args():
     # Gappo
     parser.add_argument(
         "--shared-backbone", 
-        type=bool,
+        type=lambda x: bool(strtobool(x)),
         default=False,
         help="Whether to use a shared backbone for actor and critic in GAPPO"
     )
@@ -196,7 +196,7 @@ def parse_training_args():
 
     parser.add_argument(
         "--continuous-actions",
-        type=bool,
+        type=lambda x: bool(strtobool(x)),
         default=False,
         help="Are the actions discrete or continuous?"
     )
