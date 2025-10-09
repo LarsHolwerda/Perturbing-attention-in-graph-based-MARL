@@ -13,13 +13,13 @@ def parse_training_args():
     parser.add_argument(
         "--exp-name", 
         type=str, 
-        default="MAPPO",
+        default="IPPO",
         help="the name of this experiment")
 
     parser.add_argument(
         "--algorithm", 
         type=str, 
-        default="MAPPO",
+        default="IPPO",
         help="the algorithm which will be trained")
 
     parser.add_argument(
@@ -74,13 +74,13 @@ def parse_training_args():
     parser.add_argument(
         "--env-steps-per-batch",
         type=int,
-        default=4000,
+        default=500,
         help="Number of frames collected per training iteration"
     )
     parser.add_argument(
         "--n-iters",
         type=int,
-        default=6000,
+        default=5,
         help="Number of sampling and training iterations"
     )
 
@@ -94,7 +94,7 @@ def parse_training_args():
     parser.add_argument(
         "--minibatch-size",
         type=int,
-        default=2000,
+        default=500,
         help="Size of mini-batches in each optimization step"
     )
     parser.add_argument(
@@ -114,7 +114,7 @@ def parse_training_args():
     parser.add_argument(
         "--mappo", 
         type=lambda x: bool(strtobool(x)),
-        default=True,
+        default=False,
         help="Whether to use MAPPO"
     )
 

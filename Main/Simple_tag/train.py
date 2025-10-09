@@ -70,7 +70,7 @@ class Train:
                 buffer_time = time.time() - buffer_start
                 
                 # Logging diversity metrics
-                get_diversity_metrics = compute_behavioral_diversity(tensordict_data, self.args.n_adversaries)
+                get_diversity_metrics = compute_behavioral_diversity(self.collect_policy, tensordict_data, self.args.n_adversaries)
                 diversity_metrics = {f"diversity/{k}": v for k, v in get_diversity_metrics.items()}
                 log_metrics(diversity_metrics, step=self.global_step, use_wandb=self.args.track)
 

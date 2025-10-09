@@ -7,3 +7,4 @@ mpe2==0.0.1
 tqdm==4.67.1
 wandb==0.21.3
 torch-geometric==2.6.1
+imageio-ffmpeg==0.6.0

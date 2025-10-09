@@ -16,8 +16,8 @@ echo "Starting job on $(hostname) at $(date)"
 
 cd /scratch/7990537/Hierarchical-graph-based-MARL-for-strategic-and-diverse-coordination/Main/Simple_tag
 
-/scratch/7990537/conda/envs/simple_tag/bin/python main.py --exp-name "MAPPO" \
-               --algorithm "MAPPO" \
+/scratch/7990537/conda/envs/simple_tag/bin/python main.py --exp-name "IPPO" \
+               --algorithm "IPPO" \
                --env-id "simple_tag" \
                --use-cuda False \
                --number-of-workers 32 \
@@ -31,7 +31,7 @@ cd /scratch/7990537/Hierarchical-graph-based-MARL-for-strategic-and-diverse-coor
                --minibatch-size 4000 \
                --learning-rate 0.00005 \
                --max-grad-norm 5.0 \
-               --mappo True \
+               --mappo False \
                --clip-epsilon 0.2 \
                --gamma 0.99 \
                --lmbda 0.9 \

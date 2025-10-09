@@ -140,26 +140,38 @@ def upload_videos_to_wandb(video_dir="./traces", scenario=None, algorithm=None, 
             print(f"Failed to upload or delete {mp4_path}: {e}")
 
 
-def compute_behavioral_diversity(subdata, n_adversaries):
-    logits = subdata.get(("adversary", "logits"))
-
+def compute_behavioral_diversity(multi_agent_policy, subdata, n_adversaries):
+    observations_adv = subdata.get(("adversary", "observation"))
+    # Get the observations of the first environment in the batch
+    obs_one_env = observations_adv[0] # Shape (batch_size, n_adversaries, obs_dim)
+    # Get the observation of the first agent in that environment
+    obs_one_agent = obs_one_env[:, 0, :] # Shape (batch_size, obs_dim)
+    # Adds an agent dimension with the same observation for all agents
+    same_obs_all_agent = obs_one_agent.unsqueeze(-2).repeat(1, 2, 1) # Shape (batch_size, n_adversaries, obs_dim)
+    
     distances = {}
-    # Loop over all unique pairs of adversaries
-    for i, j in combinations(range(n_adversaries), 2):
-        # Select logits for adversaries i and j
-        logits_i = logits[:, i, :]
-        logits_j = logits[:, j, :]  
-        # Compute KL divergence i to j
-        pi_i = F.log_softmax(logits_i, dim=-1)
-        pi_j = F.softmax(logits_j, dim=-1)
-        kl_ij = F.kl_div(pi_i, pi_j, reduction="batchmean", log_target=False)
-        # Compute KL divergence j to i
-        pi_j_log = F.log_softmax(logits_j, dim=-1)
-        pi_i_prob = F.softmax(logits_i, dim=-1)
-        kl_ji = F.kl_div(pi_j_log, pi_i_prob, reduction="batchmean", log_target=False)
-        # Symmetric KL divergence
-        symmetric_kl = kl_ij + kl_ji
-        distances[f"KL_agent_{i}_{j}"] = symmetric_kl.item()
+    
+    with torch.no_grad():
+        # Get the output of all adversaries given the same observations
+        output_policy = multi_agent_policy[0](same_obs_all_agent)
+        # Get only the logits tensor
+        logits_tensor = output_policy[0]
+
+        # Compute pairwise symmetric KL
+        for i, j in combinations(range(n_adversaries), 2):
+            logits_i = logits_tensor[:, i, :]
+            logits_j = logits_tensor[:, j, :]
+
+            log_probs_i = F.log_softmax(logits_i, dim=-1)
+            log_probs_j = F.log_softmax(logits_j, dim=-1)
+            probs_i = log_probs_i.exp()
+            probs_j = log_probs_j.exp()
+
+            kl_ij = F.kl_div(log_probs_i, probs_j, reduction="batchmean", log_target=False)
+            kl_ji = F.kl_div(log_probs_j, probs_i, reduction="batchmean", log_target=False)
+            symmetric_kl = 0.5 * (kl_ij + kl_ji)
+
+            distances[f"diversity/KL_agent_{i}_{j}"] = symmetric_kl.item()
 
     return distances
 
