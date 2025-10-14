@@ -187,6 +187,37 @@ def coo_to_dense_weights(edge_index, att_weights, n_agents):
         dense_weights[src, dst] = att_values[idx] # fill in the attention value for each transposed edge
     return dense_weights
 
+def coo_to_dense_weights_batched(edge_index, att_values, node_batch, n_agents, num_envs):
+    att_values = att_values.mean(-1)  # average over heads
+    src, dst = edge_index # Source and destination nodes of edges
+
+    env_node_counts = torch.bincount(node_batch) # Number of nodes per env
+    nodes_per_env = env_node_counts.view(num_envs, -1).sum(dim=1)  # Total nodes per env
+    steps_per_env = (nodes_per_env // n_agents).tolist()  # Steps per env
+
+    # Determine max steps for padding
+    max_steps = max(steps_per_env) 
+
+    dense_rollout = torch.zeros(num_envs, max_steps, n_agents, n_agents, device=att_values.device) # Create tensor with shape: (num_envs, max_steps, n_agents, n_agents)
+
+    start_idx = 0 # Where does this environment's nodes start in the global indexing
+    # Per environment
+    for env_idx in range(num_envs):
+        n_steps = steps_per_env[env_idx]
+        # Steps in this environment
+        for step in range(n_steps):
+            node_start = start_idx + step * n_agents # Start node index for this step
+            node_end = node_start + n_agents # End node index for this step
+            mask = (src >= node_start) & (src < node_end) # Mask for edges for nodes in this step
+            # Create local indexing for nodes in this step
+            src_t = src[mask] - node_start
+            dst_t = dst[mask] - node_start 
+            att_t = att_values[mask] # Attention values for edges of relevant nodes in this step
+
+            dense_rollout[env_idx, step, src_t, dst_t] = att_t # Fill in the dense matrix for this step
+        start_idx += n_steps * n_agents # Start index for next step
+
+    return dense_rollout 
 
 # Convert attention weights to a rgb image of the adversary × adversary attention matrix
 def att_to_frame(edge_index, att_values, n_agents, n_adv):

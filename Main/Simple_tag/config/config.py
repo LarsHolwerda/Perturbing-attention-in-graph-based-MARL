@@ -13,13 +13,13 @@ def parse_training_args():
     parser.add_argument(
         "--exp-name", 
         type=str, 
-        default="IPPO",
+        default="GAPPO",
         help="the name of this experiment")
 
     parser.add_argument(
         "--algorithm", 
         type=str, 
-        default="IPPO",
+        default="GAPPO",
         help="the algorithm which will be trained")
 
     parser.add_argument(
@@ -147,7 +147,7 @@ def parse_training_args():
     parser.add_argument(
         "--shared-backbone", 
         type=lambda x: bool(strtobool(x)),
-        default=False,
+        default=True,
         help="Whether to use a shared backbone for actor and critic in GAPPO"
     )
 
@@ -207,6 +207,13 @@ def parse_training_args():
         type=int,
         default=40000,
         help="Number of steps between video recordings"
+    )
+
+    parser.add_argument(
+        "--env-steps-to-analyze",
+        type=int,
+        default=1500,
+        help="Number of environment steps to store for analysis at the end of training"
     )
 
     args = parser.parse_args()

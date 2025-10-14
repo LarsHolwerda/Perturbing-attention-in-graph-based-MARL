@@ -16,7 +16,7 @@ from torch_geometric.utils import unbatch
 from train import Train
 
 # Utils
-from utils import apply_orthogonal_init, create_fully_connected_adj
+from utils import apply_orthogonal_init, coo_to_dense_weights, create_fully_connected_adj
 
 # Tensordict modules
 from tensordict.nn import TensorDictModule
@@ -183,7 +183,6 @@ class Init_GAPPO(nn.Module):
             global_obs = global_obs.view(B * T, N, obs_dim)  # [B*T, N, obs_dim]
 
         B, N, obs_dim = global_obs.shape
-        #assert N == self.n_agents        
 
         # 1. Encode observations using MLP encoder
         if self.algorithm == "GAPPO":
@@ -199,6 +198,7 @@ class Init_GAPPO(nn.Module):
 
         # 2. Enable agent communication with GAT-layer
         geo_batch = create_geo_batch(encoded, self.adj.unsqueeze(0).expand(B, -1, -1), device=global_obs.device)
+        self.geo_batch = geo_batch
         rel, att_weights = self.gat(geo_batch.x, geo_batch.edge_index)
         rel_unbatched = torch.stack(unbatch(rel, geo_batch.batch))  
 
@@ -223,6 +223,7 @@ class ActorHead(nn.Module):
         batch_shape = obs.shape[:-1]
         # Reshape logits from B*N, num_actions to B, N, num_actions
         logits = logits.view(*batch_shape, -1)
+        
         return logits
 
 class IndependentActorHead(nn.Module):

@@ -1,8 +1,8 @@
 #!/bin/bash
 
-#SBATCH --job-name=ippo_baseline
-#SBATCH --output=/scratch/7990537/Hierarchical-graph-based-MARL-for-strategic-and-diverse-coordination/Main/Simple_tag/logs/ippo_baseline_%j.out
-#SBATCH --error=/scratch/7990537/Hierarchical-graph-based-MARL-for-strategic-and-diverse-coordination/Main/Simple_tag/logs/ippo_baseline_%j.err
+#SBATCH --job-name=gappo_baseline
+#SBATCH --output=/scratch/7990537/Hierarchical-graph-based-MARL-for-strategic-and-diverse-coordination/Main/Simple_tag/logs/gappo_baseline_%j.out
+#SBATCH --error=/scratch/7990537/Hierarchical-graph-based-MARL-for-strategic-and-diverse-coordination/Main/Simple_tag/logs/gappo_baseline_%j.err
 #SBATCH --time=24:00:00
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
@@ -16,8 +16,8 @@ echo "Starting job on $(hostname) at $(date)"
 
 cd /scratch/7990537/Hierarchical-graph-based-MARL-for-strategic-and-diverse-coordination/Main/Simple_tag
 
-/scratch/7990537/conda/envs/simple_tag/bin/python main.py --exp-name "IPPO" \
-               --algorithm "IPPO" \
+/scratch/7990537/conda/envs/simple_tag/bin/python main.py --exp-name "GAPPO" \
+               --algorithm "GAPPO" \
                --env-id "simple_tag" \
                --use-cuda False \
                --number-of-workers 32 \
@@ -27,14 +27,14 @@ cd /scratch/7990537/Hierarchical-graph-based-MARL-for-strategic-and-diverse-coor
                --wandb-entity "lars-holwerda-utrecht-university" \
                --env-steps-per-batch 60000 \
                --n-iters 200 \
-               --num-epochs 45 \
+               --num-epochs 30 \
                --minibatch-size 4000 \
                --learning-rate 0.00005 \
                --max-grad-norm 5.0 \
-               --mappo False \
                --clip-epsilon 0.2 \
+               --shared-backbone True \
                --gamma 0.99 \
-               --lmbda 0.9 \
+               --lmbda 1.0 \
                --entropy-eps 0.1 \
                --n-agents 3 \
                --n-good 1 \
@@ -42,6 +42,7 @@ cd /scratch/7990537/Hierarchical-graph-based-MARL-for-strategic-and-diverse-coor
                --n-adversaries 2 \
                --n-obstacles 2 \
                --continuous-actions False \
-               --record-steps 120000
+               --record-steps 120000 \
+               --env-steps-to-analyze 500000
 
 echo "Job finished at $(date)"
