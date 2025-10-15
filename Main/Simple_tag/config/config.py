@@ -32,7 +32,7 @@ def parse_training_args():
     parser.add_argument(
         "--use-cuda",
         type=lambda x: bool(strtobool(x)),
-        default=False,
+        default=True,
         help="Whether to use cuda"
     )
 

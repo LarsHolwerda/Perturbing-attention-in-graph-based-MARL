@@ -86,6 +86,8 @@ class MLPEncoder(nn.Module):
             returns: x: Tensor([batch_size, n_agents, embedding_dim]) embedded observations of agents
         """
         # encode the received observation with MLP
+        print(f"[DEBUG] encoder input device: {x.device}")
+        print(f"[DEBUG] layer1 weight device: {self.layer1.weight.device}")
         x = F.relu(self.layer1(x))
         x = F.relu(self.layer2(x))
         x = self.layer3(x)

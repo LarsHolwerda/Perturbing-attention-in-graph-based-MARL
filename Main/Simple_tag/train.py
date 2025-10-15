@@ -34,9 +34,7 @@ class Train:
         collector_iter = iter(self.collector)
         print("Initialized collector iterator")
         # Training loop
-        for i in range(self.args.n_iters + 1):
-            if i == self.args.n_iters:
-                continue
+        for i in range(self.args.n_iters - 1):
             t0 = time.time()
             collector_start = time.time()
             # Collect data from the collector
@@ -60,7 +58,8 @@ class Train:
                             policy_module = self.policies[group].module[0]
                             actor_head = policy_module.module
                             if self.args.algorithm == "GAPPO":
-                                base_model = actor_head.base_model    
+                                base_model = actor_head.base_model  
+                                obs = obs.to(self.args.device)    
                                 _ = base_model(obs)
                                 
                                 print(f"[DEBUG] before adj conversion, iter={i}, global_step={self.global_step}")
@@ -229,7 +228,8 @@ class Train:
             )
             pbar.update()
             print("done iteration")
-
+        
+        del self.collector
         output_file = f"{self.args.env_id}__{self.args.exp_name}__{self.args.seed}__{int(time.time())}.pt"
         torch.save(self.analysis_data, f"analysis/{output_file}")
         print(f"Analysis data saved to analysis/{output_file}")
