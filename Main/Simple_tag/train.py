@@ -26,12 +26,13 @@ class Train:
 
     def train(self):
         # Initialize progress bar
+        print("Starting training...")
         pbar = tqdm(total=self.args.n_iters, desc="episode_reward_mean = 0")
         self.global_step = 0
         next_record_step = self.args.record_steps  
         # Initialize collector iterator
         collector_iter = iter(self.collector)
-
+        print("Initialized collector iterator")
         # Training loop
         for i in range(self.args.n_iters):
             t0 = time.time()
@@ -107,6 +108,7 @@ class Train:
 
             gae_start = time.time()
             # Compute GAE and add it to the data
+            print("before_GAE")
             with torch.no_grad():
                 for group in self.group_map.keys():
                     self.losses[group].value_estimator(
@@ -118,19 +120,20 @@ class Train:
             if torch.cuda.is_available(): torch.cuda.synchronize()
             gae_time = time.time() - gae_start
             buffer_start = time.time()
-
+            print("before_buffer")
             # Flatten the batch size to shuffle data
             data_view = tensordict_data.reshape(-1) 
             # Add the flattened data to the replay buffer
             self.replay_buffer.extend(data_view)
 
             buffer_time = time.time() - buffer_start
-            
+
             # Logging diversity metrics
+            print("before_diversity")
             get_diversity_metrics = compute_behavioral_diversity(self.collect_policy, tensordict_data, self.args.n_adversaries)
             diversity_metrics = {f"diversity/{k}": v for k, v in get_diversity_metrics.items()}
             log_metrics(diversity_metrics, step=self.global_step, use_wandb=self.args.track)
-
+            print("before_optimization")
 
             opt_start = time.time()
             # Loop over epochs
@@ -179,7 +182,7 @@ class Train:
                             f"{group}/clip_fraction": loss_vals["clip_fraction"].item(),
                         }, step=self.global_step, use_wandb=self.args.track)
         
-
+            print("after_optimization")
             if torch.cuda.is_available(): torch.cuda.synchronize()
             opt_time = time.time() - opt_start
 
@@ -189,7 +192,7 @@ class Train:
             sync_time = time.time() - sync_start
 
             total_iteration_time = time.time() - t0
-
+            print(f"[DEBUG] Iteration {i+1}/{self.args.n_iters} took {total_iteration_time:.3f}s (collector: {collector_time:.3f}s, GAE: {gae_time:.3f}s, buffer: {buffer_time:.3f}s, optimization: {opt_time:.3f}s, sync: {sync_time:.3f}s)")
             # Record videos and upload to wandb
             if self.global_step >= next_record_step:
                 print(f"Recording video at global step {self.global_step}")
@@ -225,6 +228,7 @@ class Train:
             refresh=False
             )
             pbar.update()
+            print("done iteration")
 
         output_file = f"{self.args.env_id}__{self.args.exp_name}__{self.args.seed}__{int(time.time())}.pt"
         torch.save(self.analysis_data, f"analysis/{output_file}")
