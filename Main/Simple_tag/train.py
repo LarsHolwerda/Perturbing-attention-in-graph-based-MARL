@@ -56,14 +56,23 @@ class Train:
                             if self.args.algorithm == "GAPPO":
                                 base_model = actor_head.base_model    
                                 _ = base_model(obs)
+                                import time, sys, psutil, os
+
+                                print(f"[DEBUG] before adj conversion, iter={i}, global_step={self.global_step}")
+                                sys.stdout.flush()
+                                t_debug0 = time.time()
                                 edge_index, att_values = base_model.gat.last_att_weights
                                 geo_batch = base_model.geo_batch
-
+                                t_start_conv = time.time()
                                 # Convert attention to dense adjacency per sample
                                 adj_weights = coo_to_dense_weights_batched(
                                     edge_index, att_values, geo_batch.batch, self.args.n_adversaries, self.args.number_of_workers
                                 )
-                                                
+                                t_end_conv = time.time()
+
+                                print(f"[DEBUG] after adj conversion, took={t_end_conv - t_start_conv:.3f}s, total since debug start={t_end_conv - t_debug0:.3f}s")
+                                print("Memory % used:", psutil.virtual_memory().percent)
+                                sys.stdout.flush()                
                             
                             elif self.args.algorithm == "IGAPPO":
                                 adj_weights = []
@@ -74,13 +83,14 @@ class Train:
                                 adj_weights = torch.stack(adj_weights)
 
                     # Append to analysis data
+                    analysis_time = time.time()
                     self.analysis_data["observations"].append(obs)
                     self.analysis_data["actions"].append(acts)
                     if group == "adversary":
                         self.analysis_data["adjacency"].append(adj_weights)
                     self.analysis_data["done"].append(terminated)
-
-
+                    analysis_time_final = time.time() - analysis_time
+                    print(f"[DEBUG] analysis data append took {analysis_time_final:.3f}s")
             # We need to expand the done and terminated to match the reward shape (this is expected by the value estimator)
             for group in self.group_map.keys():
                 group_shape = tensordict_data.get_item_shape(("next", group, "reward"))
