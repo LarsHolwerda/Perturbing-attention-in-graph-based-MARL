@@ -141,8 +141,9 @@ class Train:
                 # Loop over mini-batches
                 for _ in range(self.args.env_steps_per_batch  // self.args.minibatch_size):
                     # Sample a mini-batch from the replay buffer
+                    print("sampling subdata")
                     subdata = self.replay_buffer.sample()
-
+                    print("size of subdata:", subdata.numel())
                     for group in self.group_map.keys():
                         # Check if agent should be frozen
                         if (not self.agent_frozen) and self.global_step >= self.args.agent_training_steps:
@@ -156,6 +157,7 @@ class Train:
                             continue                        
 
                         # Compute loss
+                        print("computing loss")
                         loss_vals = self.losses[group](subdata)
                         total_loss = (
                             loss_vals["loss_objective"] +
@@ -171,7 +173,7 @@ class Train:
                         # Update parameters
                         self.optimizers[group].step()
                             
-
+                        print("done optimization step")
                         # Logging metrics for adversary
                         log_metrics({
                             f"{group}/loss_pg": loss_vals["loss_objective"].item(),
