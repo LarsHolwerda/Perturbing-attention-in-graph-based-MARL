@@ -2,6 +2,7 @@ import torch
 from utils import coo_to_dense_weights, coo_to_dense_weights_batched, log_metrics, record_video, upload_videos_to_wandb, compute_behavioral_diversity
 import time
 from tqdm import tqdm
+import time, sys, psutil, os
 
 
 class Train:
@@ -39,6 +40,7 @@ class Train:
             tensordict_data = next(collector_iter)
             if torch.cuda.is_available(): torch.cuda.synchronize()
             collector_time = time.time() - collector_start 
+            print(f"[DEBUG] Collector time: {collector_time:.3f}s")
             tensordict_data = tensordict_data.to(self.args.device)
             steps_in_batch = self.args.env_steps_per_batch
             self.global_step += steps_in_batch
@@ -49,6 +51,7 @@ class Train:
                     obs = tensordict_data.get((group, "observation")).detach().cpu()
                     acts = tensordict_data.get((group, "action")).detach().cpu()
                     terminated = tensordict_data.get(("next", group, "terminated")).detach().cpu()
+                    print(f"[DEBUG] analysis data collection, iter={i}, global_step={self.global_step}, obs shape={obs.shape}, acts shape={acts.shape}, done shape={terminated.shape}")
                     with torch.no_grad():
                         if group == "adversary":
                             policy_module = self.policies[group].module[0]
@@ -56,8 +59,7 @@ class Train:
                             if self.args.algorithm == "GAPPO":
                                 base_model = actor_head.base_model    
                                 _ = base_model(obs)
-                                import time, sys, psutil, os
-
+                                
                                 print(f"[DEBUG] before adj conversion, iter={i}, global_step={self.global_step}")
                                 sys.stdout.flush()
                                 t_debug0 = time.time()
