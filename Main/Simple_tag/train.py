@@ -1,4 +1,7 @@
+import threading
 import torch
+import torch.profiler
+
 from utils import coo_to_dense_weights, coo_to_dense_weights_batched, log_metrics, record_video, upload_videos_to_wandb, compute_behavioral_diversity
 import time
 from tqdm import tqdm
@@ -33,13 +36,15 @@ class Train:
         # Initialize collector iterator
         collector_iter = iter(self.collector)
         print("Initialized collector iterator")
+        
+        
         # Training loop
         for i in range(self.args.n_iters - 1):
             t0 = time.time()
             collector_start = time.time()
             # Collect data from the collector
             tensordict_data = next(collector_iter)
-            if torch.cuda.is_available(): torch.cuda.synchronize()
+            if torch.backends.cuda.is_built() and torch.cuda.is_available(): torch.cuda.synchronize()
             collector_time = time.time() - collector_start 
             print(f"[DEBUG] Collector time: {collector_time:.3f}s")
             tensordict_data = tensordict_data.to(self.args.device)
@@ -52,7 +57,6 @@ class Train:
                     obs = tensordict_data.get((group, "observation")).detach().cpu()
                     acts = tensordict_data.get((group, "action")).detach().cpu()
                     terminated = tensordict_data.get(("next", group, "terminated")).detach().cpu()
-                    print(f"[DEBUG] analysis data collection, iter={i}, global_step={self.global_step}, obs shape={obs.shape}, acts shape={acts.shape}, done shape={terminated.shape}")
                     with torch.no_grad():
                         if group == "adversary":
                             policy_module = self.policies[group].module[0]
@@ -62,21 +66,12 @@ class Train:
                                 obs = obs.to(self.args.device)    
                                 _ = base_model(obs)
                                 
-                                print(f"[DEBUG] before adj conversion, iter={i}, global_step={self.global_step}")
-                                sys.stdout.flush()
-                                t_debug0 = time.time()
                                 edge_index, att_values = base_model.gat.last_att_weights
                                 geo_batch = base_model.geo_batch
-                                t_start_conv = time.time()
                                 # Convert attention to dense adjacency per sample
                                 adj_weights = coo_to_dense_weights_batched(
                                     edge_index, att_values, geo_batch.batch, self.args.n_adversaries, self.args.number_of_workers
                                 )
-                                t_end_conv = time.time()
-
-                                print(f"[DEBUG] after adj conversion, took={t_end_conv - t_start_conv:.3f}s, total since debug start={t_end_conv - t_debug0:.3f}s")
-                                print("Memory % used:", psutil.virtual_memory().percent)
-                                sys.stdout.flush()                
                             
                             elif self.args.algorithm == "IGAPPO":
                                 adj_weights = []
@@ -117,8 +112,8 @@ class Train:
                         params=self.losses[group].critic_network_params,
                         target_params=self.losses[group].target_critic_network_params,
                     )
-        
-            if torch.cuda.is_available(): torch.cuda.synchronize()
+
+            if torch.backends.cuda.is_built() and torch.cuda.is_available(): torch.cuda.synchronize()
             gae_time = time.time() - gae_start
             buffer_start = time.time()
             print("before_buffer")
@@ -135,13 +130,13 @@ class Train:
             diversity_metrics = {f"diversity/{k}": v for k, v in get_diversity_metrics.items()}
             log_metrics(diversity_metrics, step=self.global_step, use_wandb=self.args.track)
             print("before_optimization")
-
             opt_start = time.time()
             # Loop over epochs
-            for _ in range(self.args.num_epochs):
+            for epoch in range(self.args.num_epochs):
                 # Loop over mini-batches
                 for _ in range(self.args.env_steps_per_batch  // self.args.minibatch_size):
                     # Sample a mini-batch from the replay buffer
+                    subdata_start = time.time()
                     subdata = self.replay_buffer.sample()
                     for group in self.group_map.keys():
                         # Check if agent should be frozen
@@ -154,35 +149,36 @@ class Train:
                         # Skip agent PPO update if frozen
                         if group == "agent" and self.agent_frozen:
                             continue                        
-
                         # Compute loss
+                        
                         loss_vals = self.losses[group](subdata)
+
+                        
                         total_loss = (
                             loss_vals["loss_objective"] +
                             loss_vals["loss_critic"] +
                             loss_vals["loss_entropy"]
                         )
-                        # Clear gradients
+
+
+                        
                         self.optimizers[group].zero_grad()
-                        # Backpropagate the loss
                         total_loss.backward()
-                        # Clip gradients
                         torch.nn.utils.clip_grad_norm_(self.losses[group].parameters(), self.args.max_grad_norm)
-                        # Update parameters
                         self.optimizers[group].step()
-                            
+
                         # Logging metrics for adversary
                         log_metrics({
-                            f"{group}/loss_pg": loss_vals["loss_objective"].item(),
-                            f"{group}/loss_v": loss_vals["loss_critic"].item(),
-                            f"{group}/loss_entropy": loss_vals["loss_entropy"].item(),
-                            f"{group}/entropy": loss_vals["entropy"].item(),
-                            f"{group}/approx_kl": loss_vals["kl_approx"].item(),
-                            f"{group}/clip_fraction": loss_vals["clip_fraction"].item(),
-                        }, step=self.global_step, use_wandb=self.args.track)
-        
+                            f"{group}/loss_pg": loss_vals["loss_objective"].detach().to("cpu", non_blocking=True),
+                            f"{group}/loss_v": loss_vals["loss_critic"].detach().to("cpu", non_blocking=True),
+                            f"{group}/loss_entropy": loss_vals["loss_entropy"].detach().to("cpu", non_blocking=True),
+                            f"{group}/entropy": loss_vals["entropy"].detach().to("cpu", non_blocking=True),
+                            f"{group}/approx_kl": loss_vals["kl_approx"].detach().to("cpu", non_blocking=True),
+                            f"{group}/clip_fraction": loss_vals["clip_fraction"].detach().to("cpu", non_blocking=True),
+                        }, self.global_step, self.args.track)
+
             print("after_optimization")
-            if torch.cuda.is_available(): torch.cuda.synchronize()
+            if torch.backends.cuda.is_built() and torch.cuda.is_available(): torch.cuda.synchronize()
             opt_time = time.time() - opt_start
 
             sync_start = time.time()

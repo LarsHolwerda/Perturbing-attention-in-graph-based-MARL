@@ -6,9 +6,10 @@
 #SBATCH --time=24:00:00
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
-#SBATCH --cpus-per-task=16
-#SBATCH --mem=32G
-
+#SBATCH --cpus-per-task=8
+#SBATCH --mem=16G
+#SBATCH --gres=gpu:1
+#SBATCH --exclusive
 
 echo "Starting job on $(hostname) at $(date)"
 
@@ -19,8 +20,8 @@ cd /scratch/7990537/Hierarchical-graph-based-MARL-for-strategic-and-diverse-coor
 /scratch/7990537/conda/envs/simple_tag/bin/python main.py --exp-name "GAPPO" \
                --algorithm "GAPPO" \
                --env-id "simple_tag" \
-               --use-cuda False \
-               --number-of-workers 32 \
+               --use-cuda True \
+               --number-of-workers 8 \
                --seed 0 \
                --track True \
                --wandb-project-name "Simple Tag" \

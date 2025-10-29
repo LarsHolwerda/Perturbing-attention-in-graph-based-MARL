@@ -50,22 +50,26 @@ def create_geo_batch(m_obs, m_adj, device):
       m_obs: [batch_size, n_agents, embedding_dim] batch of observations of agents
       m_adj: [batch_size, n_agents, n_agents] batch of adjacency matrices
     """
-    # extract batch_size from m_obs:
-    batch_size = m_obs.shape[0]
-    # list of Data objects that will be converted into a Pytorch Geometric batch
-    data_lst = []
-    for i in range(batch_size):
-        # extract observation of sample
-        sample_obs = m_obs[i]
-        # extract adjacency of sample
-        sample_adj = m_adj[i]
-        # convert adjacency matrix to sparse COO format
-        sample_adj, _ = geo_utils.dense_to_sparse(sample_adj)
-        # create Pytorch Geometric data object
-        d = Data(x=sample_obs, edge_index=sample_adj)
-        data_lst.append(d)
-    # create a batch from the list of Data objects
-    batch = Batch.from_data_list(data_lst).to(device)
+    # Move tensors to device
+    m_obs = m_obs.to(device, non_blocking=True) # Gets all observations
+    m_adj = m_adj.to(device, non_blocking=True) # Gets all graphs and the edges between them
+
+    B, N, D = m_obs.shape
+
+    m_adj_flat = m_adj.nonzero(as_tuple=False) # Returns all edges in [B, src, dst] format
+
+    # Create edge_index by vectorization and returns [2, num_edges] shape in [[src], [dst]] format
+    edge_index = torch.stack([
+        m_adj_flat[:, 0] * N + m_adj_flat[:, 1],  # source
+        m_adj_flat[:, 0] * N + m_adj_flat[:, 2],  # target
+    ])
+
+    batch = torch.arange(B, device=device).repeat_interleave(N) # Create mapping for which graph/batch each node belongs to. Example: [0, 0, 1, 1]
+    
+    x = m_obs.reshape(B * N, D) # Flatten node features to fit Batch structure
+
+    batch = Batch(x=x, edge_index=edge_index, batch=batch) # Build Batch object
+
     return batch
 
 
@@ -86,8 +90,6 @@ class MLPEncoder(nn.Module):
             returns: x: Tensor([batch_size, n_agents, embedding_dim]) embedded observations of agents
         """
         # encode the received observation with MLP
-        print(f"[DEBUG] encoder input device: {x.device}")
-        print(f"[DEBUG] layer1 weight device: {self.layer1.weight.device}")
         x = F.relu(self.layer1(x))
         x = F.relu(self.layer2(x))
         x = self.layer3(x)
@@ -100,10 +102,17 @@ class GATLayer(nn.Module):
         Graph Attention convolution mechanism: Creates latent features by combining agent's observations with
         observations of neighbors
     """
-    def __init__(self, embedding_dim=128, heads=8):
+    def __init__(self, embedding_dim=128, heads=8, noise_scale=0.1):
         super(GATLayer, self).__init__()
         # Initialize GAT-layer
+        self.algorithm = "GAPPO"
         self.gat_layer = GATv2Conv(embedding_dim, embedding_dim, heads=heads, concat=False)
+        self.noise_scale = noise_scale
+        self.episode_noise = None
+    
+    def sample_episode_noise(self, n_adversaries):
+        num_edges = n_adversaries * n_adversaries
+        self.episode_noise = torch.randn(num_edges, device=self.gat_layer.device) * self.noise_scale
 
     def forward(self, x, edge_index):
         """
@@ -115,7 +124,16 @@ class GATLayer(nn.Module):
             returns: latent_features, att_weights: computed latent features and attention weights
         """
         # create latent features and attention weights
-        latent_features, att_weights = self.gat_layer(x, edge_index, return_attention_weights=True)
+        if self.algorithm == "GAPPO" or self.algorithm == "IGAPPO":
+            latent_features, att_weights = self.gat_layer(x, edge_index, return_attention_weights=True)
+        else:
+            latent_features, (edge_idx, att_logits) = self.gat_layer(x, edge_index, return_attention_weights=True)
+            
+            # Add episode-fixed noise if it exists
+            if self.episode_noise is not None:
+                att_logits = att_logits + self.episode_noise
+
+            att_weights = torch.softmax(att_logits, dim=-1)
         self.last_att_weights = att_weights
         return latent_features, att_weights
 
@@ -153,9 +171,9 @@ class Init_GAPPO(nn.Module):
         self.algorithm = algorithm
 
         # Layers
-        self.encoder = MLPEncoder(input_features=self.input_features, embedding_dim=self.hidden_dim)
-        self.gat = GATLayer(embedding_dim=self.hidden_dim, heads=8)
-        self.action_layer = ActionLayer(actions=actions, embedding_dim=self.hidden_dim)
+        self.encoder = MLPEncoder(input_features=self.input_features, embedding_dim=self.hidden_dim).to(self.device)
+        self.gat = GATLayer(embedding_dim=self.hidden_dim, heads=8).to(self.device)
+        self.action_layer = ActionLayer(actions=actions, embedding_dim=self.hidden_dim).to(self.device)
         self.value_proc = lambda i1, i2: torch.cat([i1, i2], dim=-1)
         self.value_branch = nn.Sequential(
             nn.Linear(self.hidden_dim*2, 128),
@@ -163,7 +181,7 @@ class Init_GAPPO(nn.Module):
             nn.Linear(128, 64),
             nn.ReLU(),
             nn.Linear(64, 1)
-        )
+        ).to(self.device)
 
 
     def forward(self, global_obs, enc_by_backbone=None, agent_index=None):
@@ -202,8 +220,8 @@ class Init_GAPPO(nn.Module):
         geo_batch = create_geo_batch(encoded, self.adj.unsqueeze(0).expand(B, -1, -1), device=global_obs.device)
         self.geo_batch = geo_batch
         rel, att_weights = self.gat(geo_batch.x, geo_batch.edge_index)
-        rel_unbatched = torch.stack(unbatch(rel, geo_batch.batch))  
-
+        rel_unbatched = torch.stack(unbatch(rel, geo_batch.batch))
+        
         # 3. Compute action probabilities based on the latent features
         logits = self.action_layer(encoded, rel_unbatched)  # [B, N, num_actions]
         logits = logits.reshape(-1, self.actions)  # [B * N, num_actions] avoids the batch dimension mismatch when recording videos
@@ -424,7 +442,7 @@ class GAPPO(Train):
             # Append to losses dict
             self.losses[group] = loss_module
             # Initialize optimizer
-            self.optimizers[group] = torch.optim.Adam(loss_module.parameters(), args.learning_rate)
+            self.optimizers[group] = torch.optim.Adam(loss_module.parameters(), args.learning_rate, fused=True if torch.cuda.is_available() else False)
 
         # Close the temporary env
         temp_env.close() 

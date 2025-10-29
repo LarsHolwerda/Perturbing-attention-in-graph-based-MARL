@@ -74,7 +74,7 @@ def parse_training_args():
     parser.add_argument(
         "--env-steps-per-batch",
         type=int,
-        default=500,
+        default=4000,
         help="Number of frames collected per training iteration"
     )
     parser.add_argument(
@@ -88,20 +88,20 @@ def parse_training_args():
     parser.add_argument(
         "--num-epochs",
         type=int,
-        default=5,
+        default=1,
         help="Number of optimization steps per training iteration"
     )
     parser.add_argument(
         "--minibatch-size",
         type=int,
-        default=500,
+        default=4000,
         help="Size of mini-batches in each optimization step"
     )
     parser.add_argument(
         "--learning-rate",
         type=float,
         default=1e-4,
-        help="Learning rate"
+        help="Lear ning rate"
     )
     parser.add_argument(
         "--max-grad-norm",

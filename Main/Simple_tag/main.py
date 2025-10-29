@@ -1,7 +1,11 @@
 if __name__ == "__main__":    
+    import os
+    os.environ["TORCHINDUCTOR_FALLBACK"] = "1"           # Allow fallback to eager mode
+    os.environ["TORCHINDUCTOR_DISABLE_CAPTURE"] = "1"       
     import multiprocessing as mp
     mp.set_start_method("spawn", force=True)
     import torch
+    from torch import device
     import numpy as np
     from tensordict.nn import set_composite_lp_aggregate
     from config.config import parse_training_args
@@ -10,6 +14,14 @@ if __name__ == "__main__":
     from HetGPPO import HetGPPO
     from ppo import PPO
     from torchrl.envs import ParallelEnv
+
+    if torch.cuda.is_available():
+        device = torch.device("cuda:0")
+        print(f"Using GPU: {torch.cuda.get_device_name(device)} "
+        f"(CUDA_VISIBLE_DEVICES={os.environ.get('CUDA_VISIBLE_DEVICES')})")
+        torch.set_default_device(device)
+    else:
+        print("CUDA not available, using CPU.")
 
     # Which algorithm do we want to train
     algorithms = {

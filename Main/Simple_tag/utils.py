@@ -209,6 +209,7 @@ def coo_to_dense_weights_batched(edge_index, att_values, node_batch, n_agents, n
             node_start = start_idx + step * n_agents # Start node index for this step
             node_end = node_start + n_agents # End node index for this step
             mask = (src >= node_start) & (src < node_end) # Mask for edges for nodes in this step
+            
             # Create local indexing for nodes in this step
             src_t = src[mask] - node_start
             dst_t = dst[mask] - node_start 
