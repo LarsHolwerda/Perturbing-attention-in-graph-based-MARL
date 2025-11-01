@@ -1,7 +1,5 @@
-if __name__ == "__main__":    
-    import os
-    os.environ["TORCHINDUCTOR_FALLBACK"] = "1"           # Allow fallback to eager mode
-    os.environ["TORCHINDUCTOR_DISABLE_CAPTURE"] = "1"       
+if __name__ == "__main__":   
+    import os    
     import multiprocessing as mp
     mp.set_start_method("spawn", force=True)
     import torch
@@ -58,7 +56,9 @@ if __name__ == "__main__":
             name=run_name,
             save_code=True,
         )
-
+        #sweep_config = wandb.config
+        #args.learning_rate = sweep_config.get("learning_rate", args.learning_rate)
+        #args.minibatch_size = sweep_config.get("minibatch_size", args.minibatch_size)
     # Create env
     num_workers = args.number_of_workers
     worker_seeds = [args.seed + i for i in range(num_workers)]

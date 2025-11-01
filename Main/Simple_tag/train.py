@@ -74,12 +74,30 @@ class Train:
                                 )
                             
                             elif self.args.algorithm == "IGAPPO":
-                                adj_weights = []
-                                for net in policy_module.base_model:
-                                    edge_index, att_values = net.gat.last_att_weights
-                                    att_dense = coo_to_dense_weights(edge_index, att_values, self.args.n_adversaries)[0].detach().cpu()
-                                    adj_weights.append(att_dense)
-                                adj_weights = torch.stack(adj_weights)
+                                obs = obs.to(self.args.device)  
+                                has_time_dim = obs.dim() == 4  
+                                if has_time_dim:  # [B, T, N, obs_dim]
+                                    B, T, N, obs_dim = obs.shape
+                                    obs = obs.view(B * T, N, obs_dim)  # [B*T, N, obs_dim]
+                                else:
+                                    B, N, _ = obs.shape
+                                enc_by_backbone = []
+                                for agent_idx, independent_actor_head in enumerate(policy_module.base_model):
+                                    obs_agent = obs[:, agent_idx:agent_idx+1, :].to(self.args.device)
+                                    enc_agent = independent_actor_head.encoder(obs_agent)  # [B,1,embedding_dim]
+                                    enc_by_backbone.append(enc_agent)
+                                adj_weights = {}
+                                for agent_idx, independent_actor_head in enumerate(policy_module.base_model):
+                                    _ = independent_actor_head(obs, enc_by_backbone, agent_idx)
+
+                                    edge_index, att_values = independent_actor_head.gat.last_att_weights
+                                    geo_batch = independent_actor_head.geo_batch
+                                    # Convert attention to dense adjacency per sample
+                                    adj_dense = coo_to_dense_weights_batched(
+                                        edge_index, att_values, geo_batch.batch, self.args.n_adversaries, self.args.number_of_workers
+                                    ).detach().to(self.args.device)
+                                    adj_weights[f"agent_{agent_idx}"] = adj_dense
+
 
                     # Append to analysis data
                     analysis_time = time.time()
@@ -131,13 +149,12 @@ class Train:
             log_metrics(diversity_metrics, step=self.global_step, use_wandb=self.args.track)
             print("before_optimization")
             opt_start = time.time()
-            # Loop over epochs
-            for epoch in range(self.args.num_epochs):
-                # Loop over mini-batches
-                for _ in range(self.args.env_steps_per_batch  // self.args.minibatch_size):
-                    # Sample a mini-batch from the replay buffer
-                    subdata_start = time.time()
-                    subdata = self.replay_buffer.sample()
+
+            for epoch in range(self.args.num_epochs):  # Loop over epochs
+                for _ in range(self.args.env_steps_per_batch  // self.args.minibatch_size):  # Loop over mini-batches
+                    subdata = self.replay_buffer.sample() # Sample a mini-batch from the replay buffer
+
+                    # Loop over groups for optimization
                     for group in self.group_map.keys():
                         # Check if agent should be frozen
                         if (not self.agent_frozen) and self.global_step >= self.args.agent_training_steps:
@@ -148,23 +165,23 @@ class Train:
 
                         # Skip agent PPO update if frozen
                         if group == "agent" and self.agent_frozen:
-                            continue                        
-                        # Compute loss
-                        
-                        loss_vals = self.losses[group](subdata)
+                            continue 
 
-                        
+                        # Compute loss
+                        loss_vals = self.losses[group](subdata)
                         total_loss = (
                             loss_vals["loss_objective"] +
                             loss_vals["loss_critic"] +
                             loss_vals["loss_entropy"]
                         )
 
-
-                        
+                        # Clear gradients
                         self.optimizers[group].zero_grad()
+                        # Backpropagate the loss
                         total_loss.backward()
+                        # Clip gradients
                         torch.nn.utils.clip_grad_norm_(self.losses[group].parameters(), self.args.max_grad_norm)
+                        # Update parameters
                         self.optimizers[group].step()
 
                         # Logging metrics for adversary

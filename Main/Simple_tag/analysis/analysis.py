@@ -1,6 +1,6 @@
 import torch
 
-data = torch.load("simple_tag__GAPPO__40__1761630900.pt")
+data = torch.load("simple_tag__IGAPPO__0__1761898383.pt")
 for key, value in data.items():
     print(key, len(value))
 print(len(data["observations"]))
@@ -13,7 +13,8 @@ done = data["done"][i]
 
 print("obs shape:", obs.shape)
 print("acts shape:", acts.shape)
-print("adj shape:", adj.shape)
+for i in adj:
+    print("adjacency for agent", i, "shape:", adj[i].shape)
 print("done shape:", done.shape)
 
 print("First obs shape:", data["observations"][0].shape)

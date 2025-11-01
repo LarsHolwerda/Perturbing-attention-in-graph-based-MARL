@@ -77,11 +77,16 @@ class MLPEncoder(nn.Module):
     """
         Encoder: creates embedding of node observations
     """
-    def __init__(self, input_features, embedding_dim=128):
+    def __init__(self, algorithm, input_features, embedding_dim=128):
         super(MLPEncoder, self).__init__()
-        self.layer1 = nn.Linear(input_features, 256)
-        self.layer2 = nn.Linear(256, 128)
-        self.layer3 = nn.Linear(128, embedding_dim)
+        if algorithm == "GAPPO":
+            self.layer1 = nn.Linear(input_features, 256)
+            self.layer2 = nn.Linear(256, 128)
+            self.layer3 = nn.Linear(128, embedding_dim)
+        elif algorithm == "IGAPPO":
+            self.layer1 = nn.Linear(input_features, 128)
+            self.layer2 = nn.Linear(128, 64)
+            self.layer3 = nn.Linear(64, embedding_dim)
 
     def forward(self, x):
         """
@@ -102,13 +107,13 @@ class GATLayer(nn.Module):
         Graph Attention convolution mechanism: Creates latent features by combining agent's observations with
         observations of neighbors
     """
-    def __init__(self, embedding_dim=128, heads=8, noise_scale=0.1):
+    def __init__(self, algorithm, embedding_dim=128, heads=8, noise_scale=0.1):
         super(GATLayer, self).__init__()
         # Initialize GAT-layer
-        self.algorithm = "GAPPO"
         self.gat_layer = GATv2Conv(embedding_dim, embedding_dim, heads=heads, concat=False)
         self.noise_scale = noise_scale
         self.episode_noise = None
+        self.algorithm = algorithm
     
     def sample_episode_noise(self, n_adversaries):
         num_edges = n_adversaries * n_adversaries
@@ -142,11 +147,15 @@ class ActionLayer(nn.Module):
     """
         Action Layer: computes actions based on created latent features
     """
-    def __init__(self, actions, embedding_dim=128):
+    def __init__(self, algorithm, actions, embedding_dim=128):
         super(ActionLayer, self).__init__()
         # linear layer computes logits based on the latent features
-        self.fc1 = nn.Linear(embedding_dim*2, 128)
-        self.fc2 = nn.Linear(128, actions)
+        if algorithm == "GAPPO":
+            self.fc1 = nn.Linear(embedding_dim*2, 128)
+            self.fc2 = nn.Linear(128, actions)
+        elif algorithm == "IGAPPO":
+            self.fc1 = nn.Linear(embedding_dim*2, 64)
+            self.fc2 = nn.Linear(64, actions)
 
     def forward(self, i1, i2):
         x = torch.cat([i1, i2], dim=-1)
@@ -171,17 +180,26 @@ class Init_GAPPO(nn.Module):
         self.algorithm = algorithm
 
         # Layers
-        self.encoder = MLPEncoder(input_features=self.input_features, embedding_dim=self.hidden_dim).to(self.device)
-        self.gat = GATLayer(embedding_dim=self.hidden_dim, heads=8).to(self.device)
-        self.action_layer = ActionLayer(actions=actions, embedding_dim=self.hidden_dim).to(self.device)
+        self.encoder = MLPEncoder(self.algorithm, input_features=self.input_features, embedding_dim=self.hidden_dim).to(self.device)
+        self.gat = GATLayer(self.algorithm, embedding_dim=self.hidden_dim, heads=8).to(self.device)
+        self.action_layer = ActionLayer(self.algorithm, actions=actions, embedding_dim=self.hidden_dim).to(self.device)
         self.value_proc = lambda i1, i2: torch.cat([i1, i2], dim=-1)
-        self.value_branch = nn.Sequential(
-            nn.Linear(self.hidden_dim*2, 128),
-            nn.ReLU(),
-            nn.Linear(128, 64),
-            nn.ReLU(),
-            nn.Linear(64, 1)
-        ).to(self.device)
+        if self.algorithm == "GAPPO":
+            self.value_branch = nn.Sequential(
+                nn.Linear(self.hidden_dim*2, 128),
+                nn.ReLU(),
+                nn.Linear(128, 64),
+                nn.ReLU(),
+                nn.Linear(64, 1)
+            ).to(self.device)
+        elif self.algorithm == "IGAPPO":
+            self.value_branch = nn.Sequential(
+                nn.Linear(self.hidden_dim*2, 64),
+                nn.ReLU(),
+                nn.Linear(64, 32),
+                nn.ReLU(),
+                nn.Linear(32, 1)
+            ).to(self.device)
 
 
     def forward(self, global_obs, enc_by_backbone=None, agent_index=None):
@@ -373,7 +391,7 @@ class GAPPO(Train):
                         n_agents=n_agents,              # each backbone sees only its own obs
                         input_features=obs_size,
                         device=args.device,
-                        hidden_dim=128
+                        hidden_dim=64
                     ).to(args.device)
                     for _ in range(n_agents)
                 ])

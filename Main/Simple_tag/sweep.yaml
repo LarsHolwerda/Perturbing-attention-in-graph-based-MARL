@@ -1,0 +1,10 @@
+program: main.py
+method: grid
+metric:
+  name: charts/episode_reward_adversary_mean
+  goal: maximize
+parameters:
+  learning_rate:
+    values: [1e-4, 3e-4, 5e-4]
+  minibatch_size:
+    values: [250, 500, 750]
