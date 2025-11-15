@@ -13,13 +13,13 @@ def parse_training_args():
     parser.add_argument(
         "--exp-name", 
         type=str, 
-        default="IGAPPO",
+        default="PGAPPO",
         help="the name of this experiment")
 
     parser.add_argument(
         "--algorithm", 
         type=str, 
-        default="IGAPPO",
+        default="PGAPPO",
         help="the algorithm which will be trained")
 
     parser.add_argument(
@@ -74,13 +74,13 @@ def parse_training_args():
     parser.add_argument(
         "--env-steps-per-batch",
         type=int,
-        default=1000,
+        default=250,
         help="Number of frames collected per training iteration"
     )
     parser.add_argument(
         "--n-iters",
         type=int,
-        default=2,
+        default=4,
         help="Number of sampling and training iterations"
     )
 
@@ -95,7 +95,7 @@ def parse_training_args():
         "--minibatch-size",
         "--minibatch_size",
         type=int,
-        default=500,
+        default=250,
         help="Size of mini-batches in each optimization step"
     )
     parser.add_argument(
@@ -149,8 +149,37 @@ def parse_training_args():
     parser.add_argument(
         "--shared-backbone", 
         type=lambda x: bool(strtobool(x)),
-        default=False,
+        default=True,
         help="Whether to use a shared backbone for actor and critic in GAPPO"
+    )
+
+    # PGAPPO / PIGAPPO
+    parser.add_argument(
+        "--window-size",
+        type=int,
+        default=30,
+        help="Size of the window for pre-computed noise for attention perturbation"
+    )
+
+    parser.add_argument(
+        "--perturb-attention-start-step",
+        type=int,
+        default=0,
+        help="Number of steps after which to start perturbing attention weights"
+    )
+
+    parser.add_argument(
+        "--normal_training_period",
+        type=int,
+        default=0,
+        help="Number of steps between perturbation periods, to stabilizes training"
+    )
+
+    parser.add_argument(
+        "--perturbation_period",
+        type=int,
+        default=1,
+        help="Number of steps during which to perturb attention weights"
     )
 
     # Episode / Env
@@ -214,7 +243,7 @@ def parse_training_args():
     parser.add_argument(
         "--env-steps-to-analyze",
         type=int,
-        default=4500,
+        default=500,
         help="Number of environment steps to store for analysis at the end of training"
     )
 

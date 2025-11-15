@@ -1,7 +1,7 @@
 import threading
 import torch
 import torch.profiler
-
+from tensordict.nn import TensorDictModule
 from utils import coo_to_dense_weights, coo_to_dense_weights_batched, log_metrics, record_video, upload_videos_to_wandb, compute_behavioral_diversity
 import time
 from tqdm import tqdm
@@ -19,7 +19,8 @@ class Train:
         self.group_map = group_map  
         self.global_step = 0
         self.agent_frozen = False
-        if self.args.algorithm in ["GAPPO", "IGAPPO"]:
+        self.perturb_attention_logits = False
+        if self.args.algorithm in ["GAPPO", "IGAPPO", "PGAPPO", "PIGAPPO"]:
             self.analysis_data = {
                 "observations": [],
                 "adjacency": [],
@@ -43,6 +44,7 @@ class Train:
             t0 = time.time()
             collector_start = time.time()
             # Collect data from the collector
+
             tensordict_data = next(collector_iter)
             if torch.backends.cuda.is_built() and torch.cuda.is_available(): torch.cuda.synchronize()
             collector_time = time.time() - collector_start 
@@ -50,9 +52,25 @@ class Train:
             tensordict_data = tensordict_data.to(self.args.device)
             steps_in_batch = self.args.env_steps_per_batch
             self.global_step += steps_in_batch
-
+            print(self.global_step)
+            for group, policy in self.policies.items():
+                policy_module = policy.module  # ModuleList
+                
+                for actor_submodule in policy_module:  # TensorDictModule
+                    if isinstance(actor_submodule, TensorDictModule):
+                        actor_head = actor_submodule.module  # IndependentActorHead
+                        # Loop over each independent backbone inside base_model
+                        if self.args.algorithm in ["GAPPO", "PGAPPO"]:
+                            backbone = actor_head.base_model  # Shared backbone
+                            backbone.global_step = self.global_step
+                        elif self.args.algorithm in ["IGAPPO", "PIGAPPO"]:
+                            for backbone in actor_head.base_model:  # Init_GAPPO modules
+                                backbone.global_step = self.global_step
+                    else:
+                        continue
+        
             # For GAPPO/IGAPPO we want to store the states, actions and adjacency weights for analysis
-            if self.args.algorithm in ["GAPPO", "IGAPPO"] and self.global_step > self.args.total_env_steps - self.args.env_steps_to_analyze:
+            if self.args.algorithm in ["GAPPO", "IGAPPO", "PGAPPO", "PIGAPPO"] and self.global_step > self.args.total_env_steps - self.args.env_steps_to_analyze:
                 for group in self.group_map.keys():
                     obs = tensordict_data.get((group, "observation")).detach().cpu()
                     acts = tensordict_data.get((group, "action")).detach().cpu()
@@ -61,7 +79,7 @@ class Train:
                         if group == "adversary":
                             policy_module = self.policies[group].module[0]
                             actor_head = policy_module.module
-                            if self.args.algorithm == "GAPPO":
+                            if self.args.algorithm in ["GAPPO", "PGAPPO"]:
                                 base_model = actor_head.base_model  
                                 obs = obs.to(self.args.device)    
                                 _ = base_model(obs)
@@ -73,7 +91,7 @@ class Train:
                                     edge_index, att_values, geo_batch.batch, self.args.n_adversaries, self.args.number_of_workers
                                 )
                             
-                            elif self.args.algorithm == "IGAPPO":
+                            elif self.args.algorithm in ["IGAPPO", "PIGAPPO"]:
                                 obs = obs.to(self.args.device)  
                                 has_time_dim = obs.dim() == 4  
                                 if has_time_dim:  # [B, T, N, obs_dim]

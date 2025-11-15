@@ -4,19 +4,19 @@ import torch.nn as nn
 import torch.nn.functional as F
 import numpy as np
 import torch.autograd as autograd
-from torch import TensorType
 
 from torch_geometric.data import Batch
 from torch_geometric.data.data import Data
 from torch_geometric import utils as geo_utils
 from torch_geometric.nn.conv import GATv2Conv
 from torch_geometric.utils import unbatch
-
+from torch_geometric.utils import softmax
 # Training
 from train import Train
 
 # Utils
-from utils import apply_orthogonal_init, coo_to_dense_weights, create_fully_connected_adj
+from utils import apply_orthogonal_init, create_fully_connected_adj
+from torchrl.objectives.common import add_random_module
 
 # Tensordict modules
 from tensordict.nn import TensorDictModule
@@ -79,11 +79,11 @@ class MLPEncoder(nn.Module):
     """
     def __init__(self, algorithm, input_features, embedding_dim=128):
         super(MLPEncoder, self).__init__()
-        if algorithm == "GAPPO":
+        if algorithm in ["GAPPO", "PGAPPO"]:
             self.layer1 = nn.Linear(input_features, 256)
             self.layer2 = nn.Linear(256, 128)
             self.layer3 = nn.Linear(128, embedding_dim)
-        elif algorithm == "IGAPPO":
+        elif algorithm in ["IGAPPO", "PIGAPPO"]:
             self.layer1 = nn.Linear(input_features, 128)
             self.layer2 = nn.Linear(128, 64)
             self.layer3 = nn.Linear(64, embedding_dim)
@@ -107,19 +107,54 @@ class GATLayer(nn.Module):
         Graph Attention convolution mechanism: Creates latent features by combining agent's observations with
         observations of neighbors
     """
-    def __init__(self, algorithm, embedding_dim=128, heads=8, noise_scale=0.1):
+    def __init__(self, algorithm, n_agents, device, args, embedding_dim=128, heads=8, noise_scale=0.1):
         super(GATLayer, self).__init__()
         # Initialize GAT-layer
         self.gat_layer = GATv2Conv(embedding_dim, embedding_dim, heads=heads, concat=False)
         self.noise_scale = noise_scale
-        self.episode_noise = None
         self.algorithm = algorithm
+        self.device = device
+        self.n_agents = n_agents
+        self.num_envs = args.number_of_workers
+        self.window_size = args.window_size
+        self.num_edges = self.n_agents * self.n_agents
     
-    def sample_episode_noise(self, n_adversaries):
-        num_edges = n_adversaries * n_adversaries
-        self.episode_noise = torch.randn(num_edges, device=self.gat_layer.device) * self.noise_scale
 
-    def forward(self, x, edge_index):
+    def precomputed_noise(self, edge_index, batch):
+        """Precompute per-env noise schedule for the next batch."""
+        # Source nodes of edges
+        src_nodes = edge_index[0] 
+
+        # Maps each edge to the environment it belongs to and ensure env indices are within num_envs
+        env_indices = batch[src_nodes]   
+        env_indices = env_indices % self.num_envs
+
+        # Assign a step to each edge
+        step_ids = torch.arange(edge_index.size(1), device=self.device) // (self.num_envs * self.num_edges)
+
+        # Assign a window to each edge 
+        window_ids = step_ids // self.window_size 
+
+        # Create pairs of (env, window) for each edge
+        env_window_pairs = torch.stack([env_indices, window_ids], dim=1) 
+
+        # Get unique (env, window) pairs and their indices
+        unique_pairs, unique_indices = torch.unique(env_window_pairs, dim=0, return_inverse=True)
+        num_groups = unique_pairs.size(0)
+
+        # Sample noise for each (env, window) pair
+        base_noise = torch.randn(num_groups, self.num_edges, device=self.device) * self.noise_scale
+
+        # Get indexes for each edge to retrieve the correct noise 
+        local_idx = torch.arange(edge_index.size(1), device=self.device) % self.num_edges
+
+        # Map noise to their edges
+        edge_noise = base_noise[unique_indices, local_idx]
+        edge_noise = edge_noise.flatten()
+
+        return edge_noise
+
+    def forward(self, x, edge_index, batch, global_step, args):
         """
             x: Tensor([batch_size, n_agents, embedding_dim]): each agent is seen as a node in the graph with it's embedding as the
                 node feature
@@ -129,20 +164,26 @@ class GATLayer(nn.Module):
             returns: latent_features, att_weights: computed latent features and attention weights
         """
         # create latent features and attention weights
-        if self.algorithm == "GAPPO" or self.algorithm == "IGAPPO":
-            latent_features, att_weights = self.gat_layer(x, edge_index, return_attention_weights=True)
+        #if self.algorithm == "GAPPO" or self.algorithm == "IGAPPO":
+        use_perturbation = False
+        if (self.algorithm == "PGAPPO" or self.algorithm == "PIGAPPO") and global_step >= args.perturb_attention_start_step:
+            cycle_step = (global_step - args.perturb_attention_start_step) % \
+                 (args.normal_training_period + args.perturbation_period)
+            if cycle_step >= args.normal_training_period:
+                use_perturbation = True
+        
+        if use_perturbation:
+                latent_features, (edge_idx, att_logits) = self.gat_layer(x, edge_index, return_attention_weights=True)
+                att_logits_mean = att_logits.mean(dim=1) # Average over heads
+                edge_noise = self.precomputed_noise(edge_index, batch) # Precompute noise schedule for the batch size
+                att_logits_noise = att_logits_mean + edge_noise # Add noise to the attention logits
+                att_weights = softmax(att_logits_noise, index=edge_index[0]) # Recompute attention weights with noisy logits   
         else:
-            latent_features, (edge_idx, att_logits) = self.gat_layer(x, edge_index, return_attention_weights=True)
-            
-            # Add episode-fixed noise if it exists
-            if self.episode_noise is not None:
-                att_logits = att_logits + self.episode_noise
-
-            att_weights = torch.softmax(att_logits, dim=-1)
-        self.last_att_weights = att_weights
+            latent_features, att_weights = self.gat_layer(x, edge_index, return_attention_weights=True)
+        self.last_att_weights = att_weights 
         return latent_features, att_weights
-
-
+    
+add_random_module(GATLayer)
 class ActionLayer(nn.Module):
     """
         Action Layer: computes actions based on created latent features
@@ -150,10 +191,10 @@ class ActionLayer(nn.Module):
     def __init__(self, algorithm, actions, embedding_dim=128):
         super(ActionLayer, self).__init__()
         # linear layer computes logits based on the latent features
-        if algorithm == "GAPPO":
+        if algorithm in ["GAPPO", "PGAPPO"]:
             self.fc1 = nn.Linear(embedding_dim*2, 128)
             self.fc2 = nn.Linear(128, actions)
-        elif algorithm == "IGAPPO":
+        elif algorithm in ["IGAPPO", "PIGAPPO"]:
             self.fc1 = nn.Linear(embedding_dim*2, 64)
             self.fc2 = nn.Linear(64, actions)
 
@@ -168,7 +209,7 @@ class ActionLayer(nn.Module):
 
 
 class Init_GAPPO(nn.Module):
-    def __init__(self, algorithm, actions, n_agents, input_features, device, hidden_dim=128):
+    def __init__(self, algorithm, actions, n_agents, input_features, device, global_step, args, hidden_dim=128):
         super().__init__()
 
         self.n_agents = n_agents
@@ -178,13 +219,15 @@ class Init_GAPPO(nn.Module):
         self.device = device
         self.adj = create_fully_connected_adj(self.n_agents, self.device)
         self.algorithm = algorithm
+        self.global_step = global_step
+        self.args = args
 
         # Layers
         self.encoder = MLPEncoder(self.algorithm, input_features=self.input_features, embedding_dim=self.hidden_dim).to(self.device)
-        self.gat = GATLayer(self.algorithm, embedding_dim=self.hidden_dim, heads=8).to(self.device)
+        self.gat = GATLayer(self.algorithm, self.n_agents, self.device, self.args, embedding_dim=self.hidden_dim, heads=8).to(self.device)
         self.action_layer = ActionLayer(self.algorithm, actions=actions, embedding_dim=self.hidden_dim).to(self.device)
         self.value_proc = lambda i1, i2: torch.cat([i1, i2], dim=-1)
-        if self.algorithm == "GAPPO":
+        if self.algorithm in ["GAPPO", "PGAPPO"]:
             self.value_branch = nn.Sequential(
                 nn.Linear(self.hidden_dim*2, 128),
                 nn.ReLU(),
@@ -192,7 +235,7 @@ class Init_GAPPO(nn.Module):
                 nn.ReLU(),
                 nn.Linear(64, 1)
             ).to(self.device)
-        elif self.algorithm == "IGAPPO":
+        elif self.algorithm in ["IGAPPO", "PIGAPPO"]:
             self.value_branch = nn.Sequential(
                 nn.Linear(self.hidden_dim*2, 64),
                 nn.ReLU(),
@@ -223,9 +266,9 @@ class Init_GAPPO(nn.Module):
         B, N, obs_dim = global_obs.shape
 
         # 1. Encode observations using MLP encoder
-        if self.algorithm == "GAPPO":
+        if self.algorithm in ["GAPPO", "PGAPPO"]:
             encoded = self.encoder(global_obs)
-        elif self.algorithm == "IGAPPO":
+        elif self.algorithm in ["IGAPPO", "PIGAPPO"]:
             enc_agents_list = []
             for agent in range(N):
                 enc_agent = enc_by_backbone[agent]  # encoding of agent
@@ -237,7 +280,7 @@ class Init_GAPPO(nn.Module):
         # 2. Enable agent communication with GAT-layer
         geo_batch = create_geo_batch(encoded, self.adj.unsqueeze(0).expand(B, -1, -1), device=global_obs.device)
         self.geo_batch = geo_batch
-        rel, att_weights = self.gat(geo_batch.x, geo_batch.edge_index)
+        rel, att_weights = self.gat(geo_batch.x, geo_batch.edge_index, geo_batch.batch, self.global_step, args=self.args)  
         rel_unbatched = torch.stack(unbatch(rel, geo_batch.batch))
         
         # 3. Compute action probabilities based on the latent features
@@ -269,7 +312,7 @@ class IndependentActorHead(nn.Module):
         super().__init__()
         self.base_model = base_model
 
-    def forward(self, obs):       
+    def forward(self, obs):
         add_batch = False # If video recording, we need to add a batch dimension    
         if obs.ndim == 2:  # [N, obs_dim]
             obs = obs.unsqueeze(0)  # -> [1, N, obs_dim]
@@ -373,11 +416,13 @@ class GAPPO(Train):
             if args.shared_backbone:
                 # Shared backbone
                 backbone = Init_GAPPO(
-                    algorithm="GAPPO",
+                    algorithm=args.algorithm,
                     actions=actions,
                     n_agents=n_agents,
                     input_features=obs_size,
                     device=args.device,
+                    global_step=self.global_step,
+                    args=args,
                     hidden_dim=128                
                 ).to(args.device)
                 apply_orthogonal_init(backbone)
@@ -386,11 +431,13 @@ class GAPPO(Train):
             else:
                 backbones = nn.ModuleList([
                     Init_GAPPO(
-                        algorithm="IGAPPO",
+                        algorithm=args.algorithm,
                         actions=actions,
                         n_agents=n_agents,              # each backbone sees only its own obs
                         input_features=obs_size,
                         device=args.device,
+                        global_step=self.global_step,
+                        args=args,
                         hidden_dim=64
                     ).to(args.device)
                     for _ in range(n_agents)

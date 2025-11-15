@@ -229,7 +229,7 @@ class IPPO:
             if self.global_step >= next_record_step:
                 print(f"Recording video at global step {self.global_step}")
                 record_video(self.env, self.policy, self.device, num_episodes=1)
-                upload_videos_to_wandb(scenario="academy_3_vs_1_with_keeper", algorithm="ippo", step=self.global_step)
+                upload_videos_to_wandb(scenario="academy_counterattack_hard", algorithm="ippo", step=self.global_step)
                 next_record_step += self.args.record_steps
 
             # Logging

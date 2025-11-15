@@ -13,13 +13,13 @@ def parse_training_args():
     parser.add_argument(
         "--exp-name", 
         type=str, 
-        default="GAPPO",
+        default="IPPO",
         help="the name of this experiment")
     
     parser.add_argument(
         "--env-id", 
         type=str, 
-        default="academy_3_v_1_with_keeper",
+        default="academy_counterattack_hard",
         help="the id of the environment")
     
     # Device configuration
@@ -54,13 +54,13 @@ def parse_training_args():
     parser.add_argument(
         "--env-steps-per-batch",
         type=int,
-        default=2000,
+        default=250,
         help="Number of frames collected per training iteration"
     )
     parser.add_argument(
         "--n-iters",
         type=int,
-        default=600,
+        default=1,
         help="Number of sampling and training iterations"
     )
 
@@ -68,13 +68,13 @@ def parse_training_args():
     parser.add_argument(
         "--num-epochs",
         type=int,
-        default=15,
+        default=1,
         help="Number of optimization steps per training iteration"
     )
     parser.add_argument(
         "--minibatch-size",
         type=int,
-        default=500,
+        default=250,
         help="Size of mini-batches in each optimization step"
     )
     parser.add_argument(
@@ -120,7 +120,7 @@ def parse_training_args():
     parser.add_argument(
         "--max-steps",
         type=int,
-        default=100,
+        default=400,
         help="Max episode steps before done"
     )
     parser.add_argument(
@@ -141,7 +141,7 @@ def parse_training_args():
     parser.add_argument(
         "--record-steps",
         type=int,
-        default=200000,
+        default=0,
         help="Number of steps between video recordings"
     )
 

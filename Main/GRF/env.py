@@ -18,7 +18,7 @@ args = parse_training_args()
 def create_env():
     
     raw_env = gfootball_pettingzoo_v1.parallel_env(
-        'academy_3_vs_1_with_keeper',
+        'academy_counterattack_hard',
         representation='simplev1', 
         number_of_left_players_agent_controls=3,
     ) 
@@ -48,7 +48,7 @@ def create_env():
 
 def create_render_env():
     render_env = create_environment(
-    env_name='academy_3_vs_1_with_keeper',
+    env_name='academy_counterattack_hard',
     representation='simplev1',
     render=True,
     number_of_left_players_agent_controls=3,

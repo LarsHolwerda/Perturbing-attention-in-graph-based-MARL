@@ -34,7 +34,7 @@ if args.track:
 env = create_env() 
 
 # Set algorithm to train on
-trainer = GAPPO(env, args)
+trainer = IPPO(env, args)
 
 # Train the policy
 trainer.train()

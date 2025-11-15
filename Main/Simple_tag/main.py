@@ -27,6 +27,8 @@ if __name__ == "__main__":
         "IPPO": PPO, # with args.mappo == False
         "GAPPO": GAPPO, # with args.shared_backbone == True
         "IGAPPO": GAPPO, # with args.shared_backbone == False
+        "PGAPPO": GAPPO, # with args.shared_backbone == True and args.perturb_attention_logits == True
+        "PIGAPPO": GAPPO, # with args.shared_backbone == False and args.perturb_attention_logits == True
     }
 
     # disable log-prob aggregation

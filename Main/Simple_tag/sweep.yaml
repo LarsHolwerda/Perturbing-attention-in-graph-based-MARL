@@ -1,5 +1,6 @@
 program: main.py
 method: grid
+project: Simple Tag
 metric:
   name: charts/episode_reward_adversary_mean
   goal: maximize

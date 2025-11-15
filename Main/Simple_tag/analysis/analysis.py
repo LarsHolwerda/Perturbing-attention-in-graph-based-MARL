@@ -1,6 +1,6 @@
 import torch
 
-data = torch.load("simple_tag__IGAPPO__0__1761898383.pt")
+data = torch.load("simple_tag__PIGAPPO__0__1763229596.pt")
 for key, value in data.items():
     print(key, len(value))
 print(len(data["observations"]))
@@ -24,7 +24,7 @@ print("Last obs shape:", data["observations"][-1].shape)
 num_batches = len(data["observations"])
 steps_per_batch = data["observations"][0].shape[1]
 num_envs = data["observations"][0].shape[0]
-total_steps = num_batches * num_envs * steps_per_batch
+total_steps = num_batches * steps_per_batch
 print(f"Approx total steps stored: {total_steps:,}")
 print(data["observations"][0].shape)
 print(len(data["observations"]))
