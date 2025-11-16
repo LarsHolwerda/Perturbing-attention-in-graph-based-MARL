@@ -155,6 +155,13 @@ def parse_training_args():
 
     # PGAPPO / PIGAPPO
     parser.add_argument(
+        "--noise-scale",
+        type=float,
+        default=0.3,
+        help="Scale of the noise to perturb attention logits"
+    )
+    
+    parser.add_argument(
         "--window-size",
         type=int,
         default=30,
@@ -169,14 +176,14 @@ def parse_training_args():
     )
 
     parser.add_argument(
-        "--normal_training_period",
+        "--normal-training-period",
         type=int,
         default=0,
         help="Number of steps between perturbation periods, to stabilizes training"
     )
 
     parser.add_argument(
-        "--perturbation_period",
+        "--perturbation-period",
         type=int,
         default=1,
         help="Number of steps during which to perturb attention weights"

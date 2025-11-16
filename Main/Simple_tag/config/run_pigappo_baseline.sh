@@ -1,15 +1,14 @@
 #!/bin/bash
 
-#SBATCH --job-name=gappo_baseline
-#SBATCH --output=/scratch/7990537/Hierarchical-graph-based-MARL-for-strategic-and-diverse-coordination/Main/Simple_tag/logs/gappo_baseline_%j.out
-#SBATCH --error=/scratch/7990537/Hierarchical-graph-based-MARL-for-strategic-and-diverse-coordination/Main/Simple_tag/logs/gappo_baseline_%j.err
+#SBATCH --job-name=pigappo_baseline
+#SBATCH --output=/scratch/7990537/Hierarchical-graph-based-MARL-for-strategic-and-diverse-coordination/Main/Simple_tag/logs/pigappo_baseline_%j.out
+#SBATCH --error=/scratch/7990537/Hierarchical-graph-based-MARL-for-strategic-and-diverse-coordination/Main/Simple_tag/logs/pigappo_baseline_%j.err
 #SBATCH --time=24:00:00
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
-#SBATCH --cpus-per-task=8
+#SBATCH --cpus-per-task=12
 #SBATCH --mem=16G
 #SBATCH --gres=gpu:1
-#SBATCH --exclusive
 
 echo "Starting job on $(hostname) at $(date)"
 
@@ -21,7 +20,7 @@ cd /scratch/7990537/Hierarchical-graph-based-MARL-for-strategic-and-diverse-coor
                --algorithm "PIGAPPO" \
                --env-id "simple_tag" \
                --use-cuda True \
-               --number-of-workers 8 \
+               --number-of-workers 12 \
                --seed 0 \
                --track True \
                --wandb-project-name "Simple Tag" \
@@ -34,10 +33,11 @@ cd /scratch/7990537/Hierarchical-graph-based-MARL-for-strategic-and-diverse-coor
                --max-grad-norm 5.0 \
                --clip-epsilon 0.2 \
                --shared-backbone False \
+               --noise-scale 0.3 \
                --window-size 30 \
                --perturb-attention-start-step 0 \
-               --normal_training_period 0 \
-               --perturbation_period 1 \
+               --normal-training-period 0 \
+               --perturbation-period 1 \
                --gamma 0.99 \
                --lmbda 1.0 \
                --entropy-eps 0.1 \

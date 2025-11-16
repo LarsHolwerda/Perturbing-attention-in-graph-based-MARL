@@ -107,18 +107,17 @@ class GATLayer(nn.Module):
         Graph Attention convolution mechanism: Creates latent features by combining agent's observations with
         observations of neighbors
     """
-    def __init__(self, algorithm, n_agents, device, args, embedding_dim=128, heads=8, noise_scale=0.1):
+    def __init__(self, algorithm, n_agents, device, args, embedding_dim=128, heads=8):
         super(GATLayer, self).__init__()
         # Initialize GAT-layer
         self.gat_layer = GATv2Conv(embedding_dim, embedding_dim, heads=heads, concat=False)
-        self.noise_scale = noise_scale
+        self.noise_scale = args.noise_scale
         self.algorithm = algorithm
         self.device = device
         self.n_agents = n_agents
         self.num_envs = args.number_of_workers
         self.window_size = args.window_size
         self.num_edges = self.n_agents * self.n_agents
-    
 
     def precomputed_noise(self, edge_index, batch):
         """Precompute per-env noise schedule for the next batch."""
