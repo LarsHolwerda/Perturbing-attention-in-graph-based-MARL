@@ -37,6 +37,7 @@ def apply_orthogonal_init(model):
 
 
 
+
 # Logging
 def log_metrics(metrics, step, use_wandb):
     if use_wandb:
@@ -105,9 +106,7 @@ def record_video(multi_agent_policy, algorithm, n_agents, n_adv, device, video_p
         frame = env.render()
         if frame is not None:
             frames.append(frame)
-
         step += 1
-
     env.close()
     
     # Save as MP4
@@ -140,6 +139,9 @@ def upload_videos_to_wandb(video_dir="./traces", scenario=None, algorithm=None, 
             print(f"Failed to upload or delete {mp4_path}: {e}")
 
 
+
+
+# Diversity measure
 def compute_behavioral_diversity(multi_agent_policy, subdata, n_adversaries):
     observations_adv = subdata.get(("adversary", "observation"))
     # Get the observations of the first environment in the batch
@@ -174,6 +176,9 @@ def compute_behavioral_diversity(multi_agent_policy, subdata, n_adversaries):
             distances[f"diversity/KL_agent_{i}_{j}"] = symmetric_kl.item()
 
     return distances
+
+
+
 
 # Gappo
 def create_fully_connected_adj(n_agents, device):

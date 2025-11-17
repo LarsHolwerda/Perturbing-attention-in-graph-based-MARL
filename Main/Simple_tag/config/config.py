@@ -171,7 +171,7 @@ def parse_training_args():
     parser.add_argument(
         "--perturb-attention-start-step",
         type=int,
-        default=0,
+        default=500,
         help="Number of steps after which to start perturbing attention weights"
     )
 
@@ -250,7 +250,7 @@ def parse_training_args():
     parser.add_argument(
         "--env-steps-to-analyze",
         type=int,
-        default=500,
+        default=0,
         help="Number of environment steps to store for analysis at the end of training"
     )
 

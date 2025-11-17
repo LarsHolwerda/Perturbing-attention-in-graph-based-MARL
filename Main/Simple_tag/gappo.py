@@ -2,15 +2,13 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-import numpy as np
-import torch.autograd as autograd
 
+# PyG
 from torch_geometric.data import Batch
-from torch_geometric.data.data import Data
-from torch_geometric import utils as geo_utils
 from torch_geometric.nn.conv import GATv2Conv
 from torch_geometric.utils import unbatch
 from torch_geometric.utils import softmax
+
 # Training
 from train import Train
 
@@ -42,8 +40,6 @@ from env import create_env
 
 #Logging
 from tqdm import tqdm
-import time
-
 
 def create_geo_batch(m_obs, m_adj, device):
     """
@@ -56,7 +52,8 @@ def create_geo_batch(m_obs, m_adj, device):
 
     B, N, D = m_obs.shape
 
-    m_adj_flat = m_adj.nonzero(as_tuple=False) # Returns all edges in [B, src, dst] format
+    # Returns all edges in [B, src, dst] format
+    m_adj_flat = m_adj.nonzero(as_tuple=False) 
 
     # Create edge_index by vectorization and returns [2, num_edges] shape in [[src], [dst]] format
     edge_index = torch.stack([
@@ -64,12 +61,14 @@ def create_geo_batch(m_obs, m_adj, device):
         m_adj_flat[:, 0] * N + m_adj_flat[:, 2],  # target
     ])
 
-    batch = torch.arange(B, device=device).repeat_interleave(N) # Create mapping for which graph/batch each node belongs to. Example: [0, 0, 1, 1]
+    # Create mapping for which graph/batch each node belongs to. Example: [0, 0, 1, 1]
+    batch = torch.arange(B, device=device).repeat_interleave(N) 
+
+    # Flatten node features to fit Batch structure
+    x = m_obs.reshape(B * N, D) 
     
-    x = m_obs.reshape(B * N, D) # Flatten node features to fit Batch structure
-
-    batch = Batch(x=x, edge_index=edge_index, batch=batch) # Build Batch object
-
+    # Build Batch object
+    batch = Batch(x=x, edge_index=edge_index, batch=batch) 
     return batch
 
 
@@ -106,6 +105,7 @@ class GATLayer(nn.Module):
     """
         Graph Attention convolution mechanism: Creates latent features by combining agent's observations with
         observations of neighbors
+        Adds noise to the attention logits during perturbation periods in PGAPPO / PIGAPPO
     """
     def __init__(self, algorithm, n_agents, device, args, embedding_dim=128, heads=8):
         super(GATLayer, self).__init__()
@@ -163,7 +163,6 @@ class GATLayer(nn.Module):
             returns: latent_features, att_weights: computed latent features and attention weights
         """
         # create latent features and attention weights
-        #if self.algorithm == "GAPPO" or self.algorithm == "IGAPPO":
         use_perturbation = False
         if (self.algorithm == "PGAPPO" or self.algorithm == "PIGAPPO") and global_step >= args.perturb_attention_start_step:
             cycle_step = (global_step - args.perturb_attention_start_step) % \
@@ -176,12 +175,13 @@ class GATLayer(nn.Module):
                 att_logits_mean = att_logits.mean(dim=1) # Average over heads
                 edge_noise = self.precomputed_noise(edge_index, batch) # Precompute noise schedule for the batch size
                 att_logits_noise = att_logits_mean + edge_noise # Add noise to the attention logits
-                att_weights = softmax(att_logits_noise, index=edge_index[0]) # Recompute attention weights with noisy logits   
+                att_weights = softmax(att_logits_noise, index=edge_index[0]) # Recompute attention weights with noisy logits  
+                self.last_att_weights = (edge_idx, att_weights) # Store last attention weights
         else:
             latent_features, att_weights = self.gat_layer(x, edge_index, return_attention_weights=True)
-        self.last_att_weights = att_weights 
+            self.last_att_weights = att_weights # Store last attention weights
         return latent_features, att_weights
-    
+
 add_random_module(GATLayer)
 class ActionLayer(nn.Module):
     """
@@ -251,13 +251,14 @@ class Init_GAPPO(nn.Module):
             adj:        Tensor [B, N, N]
 
         Returns:
-            logits:     Tensor [B, N, num_actions]
-            values:     Tensor [B, N, 1]
+            logits:     Tensor [B * N, 1] to avoid a batch dimension mismatch when recording videos
+            values:     Tensor [B * N, 1]
         """
+        
+        # ensure shape [B, N, obs_dim] is met (necessary for parallel envs)
         if global_obs.dim() == 2:
             global_obs = global_obs.unsqueeze(0)
 
-        # ensure shape [B, N, obs_dim] is met (necessary for parallel envs)
         if global_obs.dim() == 4:  # [B, T, N, obs_dim]
             B, T, N, obs_dim = global_obs.shape
             global_obs = global_obs.view(B * T, N, obs_dim)  # [B*T, N, obs_dim]
@@ -291,8 +292,8 @@ class Init_GAPPO(nn.Module):
 
 class ActorHead(nn.Module):
     '''
-        Actor head that reshapes the output of the shared base model to [B, N, num_actions]. 
-        We need this wrapper around the base model because the loss functions expects a different network for the actor and critic.
+        Reshapes the output of the shared base model to [B, N, num_actions]. 
+        We need this wrapper around the base model because the loss function expects a different network for the actor and critic.
     '''
     def __init__(self, base_model):
         super().__init__()
@@ -307,6 +308,11 @@ class ActorHead(nn.Module):
         return logits
 
 class IndependentActorHead(nn.Module):
+    '''
+        Reshapes the output of the independent base model to [B, N, num_actions]. 
+        We need this wrapper around the base model because the loss function expects a different network for the actor and critic.
+        Encodings are per agent, from their own network. Logits are also per agent, and from their own network.
+    '''
     def __init__(self, base_model):
         super().__init__()
         self.base_model = base_model

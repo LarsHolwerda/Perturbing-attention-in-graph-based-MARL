@@ -9,7 +9,6 @@ if __name__ == "__main__":
     from config.config import parse_training_args
     from env import create_env
     from gappo import GAPPO
-    from HetGPPO import HetGPPO
     from ppo import PPO
     from torchrl.envs import ParallelEnv
 
