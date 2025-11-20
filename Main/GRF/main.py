@@ -1,44 +1,80 @@
-import multiprocessing as mp
-mp.set_start_method("spawn", force=True)
-import torch
-from tensordict.nn import set_composite_lp_aggregate
-from config import parse_training_args
-from env import create_env
-from ippo import IPPO
-from gappo import GAPPO
-from HetGPPO import HetGPPO
+if __name__ == "__main__":   
+    import os    
+    import multiprocessing as mp
+    mp.set_start_method("spawn", force=True)
+    import torch
+    from torch import device
+    import numpy as np
+    from tensordict.nn import set_composite_lp_aggregate
+    from config.config import parse_training_args
+    from env import create_env
+    from gappo import GAPPO
+    from ppo import PPO
+    from torchrl.envs import ParallelEnv
 
-# Set seed
-torch.manual_seed(0)
-# disable log-prob aggregation
-set_composite_lp_aggregate(False).set()
+    if torch.cuda.is_available():
+        device = torch.device("cuda:0")
+        print(f"Using GPU: {torch.cuda.get_device_name(device)} "
+        f"(CUDA_VISIBLE_DEVICES={os.environ.get('CUDA_VISIBLE_DEVICES')})")
+        torch.set_default_device(device)
+    else:
+        print("CUDA not available, using CPU.")
 
-# Get command line arguments
-args = parse_training_args()
+    # Which algorithm do we want to train
+    algorithms = {
+        "MAPPO": PPO, # with args.mappo == True
+        "IPPO": PPO, # with args.mappo == False
+        "GAPPO": GAPPO, # with args.shared_backbone == True
+        "IGAPPO": GAPPO, # with args.shared_backbone == False
+        "PGAPPO": GAPPO, # with args.shared_backbone == True and args.perturb_attention_logits == True
+        "PIGAPPO": GAPPO, # with args.shared_backbone == False and args.perturb_attention_logits == True
+    }
 
-# Log to wandb
-import wandb
-import time
-run_name = f"{args.env_id}__{args.exp_name}__{int(time.time())}"
-if args.track:
+    # disable log-prob aggregation
+    set_composite_lp_aggregate(False).set()
+
+    # Get command line arguments
+    args = parse_training_args()
+
+    # Set seed
+    print(f"Starting run with seed {args.seed}")
+    torch.manual_seed(args.seed)
+    np.random.seed(args.seed)
+    torch.cuda.manual_seed_all(args.seed)
+    torch.backends.cudnn.deterministic = True 
+    torch.backends.cudnn.benchmark = False
+
+    # Log to wandb
     import wandb
-    wandb.init(
-        project=args.wandb_project_name,
-        entity=args.wandb_entity,
-        config=vars(args),
-        name=run_name,
-        save_code=True,
-    )
+    import time
+    run_name = f"{args.env_id}__{args.exp_name}__{args.seed}__{int(time.time())}"
+    if args.track:
+        import wandb
+        wandb.init(
+            project=args.wandb_project_name,
+            entity=args.wandb_entity,
+            config=vars(args),
+            name=run_name,
+            save_code=True,
+        )
+        #sweep_config = wandb.config
+        #args.learning_rate = sweep_config.get("learning_rate", args.learning_rate)
+        #args.minibatch_size = sweep_config.get("minibatch_size", args.minibatch_size)
+    # Create env
+    num_workers = args.number_of_workers
+    worker_seeds = [args.seed + i for i in range(num_workers)]
+    iter_seeds = iter(worker_seeds)
+    env = ParallelEnv(num_workers, lambda idx=None: create_env(seed=worker_seeds[idx] if idx is not None else worker_seeds[0]), share_individual_td=True)
 
-# Create grf env
-env = create_env() 
+    # Set algorithm to train on
+    if args.algorithm not in algorithms:
+        raise ValueError(f"Unknown algorithm: {args.algorithm}. Choose from {list(algorithms.keys())}")
+    algorithm = algorithms[args.algorithm]
+    trainer_algorithm = algorithm(env, args)
 
-# Set algorithm to train on
-trainer = IPPO(env, args)
+    # Train the policy
+    trainer_algorithm.train()
 
-# Train the policy
-trainer.train()
-
-# Log results
-if args.track:
-    wandb.finish()
+    # Log results
+    if args.track:
+        wandb.finish()

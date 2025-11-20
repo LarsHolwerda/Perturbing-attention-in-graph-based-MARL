@@ -2,12 +2,15 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from torch import Tensor
+from typing import Optional
 
 # PyG
 from torch_geometric.data import Batch
 from torch_geometric.nn.conv import GATv2Conv
 from torch_geometric.utils import unbatch
 from torch_geometric.utils import softmax
+from torch_geometric.typing import OptTensor
 
 # Training
 from train import Train
@@ -15,12 +18,11 @@ from train import Train
 # Utils
 from utils import apply_orthogonal_init, create_fully_connected_adj
 from torchrl.objectives.common import add_random_module
+from typing import Optional
 
 # Tensordict modules
 from tensordict.nn import TensorDictModule
 from tensordict.nn import TensorDictSequential
-from torchrl.modules import TanhNormal
-from tensordict.nn.distributions import NormalParamExtractor
 from torch.distributions import Categorical
 
 # Data collection
@@ -100,24 +102,18 @@ class MLPEncoder(nn.Module):
         # return embedded observation of agent
         return x
 
-
-class GATLayer(nn.Module):
+class NoisyGATv2Conv(GATv2Conv):
     """
-        Graph Attention convolution mechanism: Creates latent features by combining agent's observations with
-        observations of neighbors
-        Adds noise to the attention logits during perturbation periods in PGAPPO / PIGAPPO
+        Addition to GATv2Conv: noise added to attention logits during perturbation periods in PGAPPO / PIGAPPO
     """
-    def __init__(self, algorithm, n_agents, device, args, embedding_dim=128, heads=8):
-        super(GATLayer, self).__init__()
-        # Initialize GAT-layer
-        self.gat_layer = GATv2Conv(embedding_dim, embedding_dim, heads=heads, concat=False)
-        self.noise_scale = args.noise_scale
-        self.algorithm = algorithm
+    def __init__(self, *args, device, noise_scale=0.0, num_edges=None, window_size=None, num_envs=None, **kwargs):
+        super().__init__(*args, **kwargs)
         self.device = device
-        self.n_agents = n_agents
-        self.num_envs = args.number_of_workers
-        self.window_size = args.window_size
-        self.num_edges = self.n_agents * self.n_agents
+        self.noise_scale = noise_scale
+        self.num_edges = num_edges
+        self.window_size = window_size
+        self.num_envs = num_envs
+        self.edge_noise = None
 
     def precomputed_noise(self, edge_index, batch):
         """Precompute per-env noise schedule for the next batch."""
@@ -149,9 +145,49 @@ class GATLayer(nn.Module):
 
         # Map noise to their edges
         edge_noise = base_noise[unique_indices, local_idx]
-        edge_noise = edge_noise.flatten()
+        edge_noise = edge_noise.unsqueeze(-1).expand(-1, self.heads)
+        self.edge_noise = edge_noise  
 
-        return edge_noise
+    def edge_update(self, x_j: Tensor, x_i: Tensor, edge_attr: OptTensor,
+                    index: Tensor, ptr: OptTensor,
+                    dim_size: Optional[int]) -> Tensor:
+        x = x_i + x_j
+
+        if edge_attr is not None:
+            if edge_attr.dim() == 1:
+                edge_attr = edge_attr.view(-1, 1)
+            assert self.lin_edge is not None
+            edge_attr = self.lin_edge(edge_attr)
+            edge_attr = edge_attr.view(-1, self.heads, self.out_channels)
+            x = x + edge_attr
+
+        x = F.leaky_relu(x, self.negative_slope)
+        alpha = (x * self.att).sum(dim=-1)
+        if self.edge_noise is not None:
+            alpha = alpha + self.edge_noise
+        alpha = softmax(alpha, index, ptr, dim_size)
+        alpha = F.dropout(alpha, p=self.dropout, training=self.training)
+        return alpha
+    
+
+
+class GATLayer(nn.Module):
+    """
+        Graph Attention convolution mechanism: Creates latent features by combining agent's observations with
+        observations of neighbors
+        Adds noise to the attention logits during perturbation periods in PGAPPO / PIGAPPO
+    """
+    def __init__(self, device, algorithm, n_agents, args, embedding_dim=128, heads=8):
+        super(GATLayer, self).__init__()
+        # Initialize GAT-layer
+        self.device = device
+        self.algorithm = algorithm
+        self.noise_scale = args.noise_scale
+        self.n_agents = n_agents
+        self.num_envs = args.number_of_workers
+        self.window_size = args.window_size
+        self.num_edges = self.n_agents * self.n_agents
+        self.gat_layer = NoisyGATv2Conv(embedding_dim, embedding_dim, heads=heads, concat=False, device=self.device, noise_scale=args.noise_scale, num_edges=self.num_edges, window_size=self.window_size, num_envs=self.num_envs)
 
     def forward(self, x, edge_index, batch, global_step, args):
         """
@@ -164,22 +200,22 @@ class GATLayer(nn.Module):
         """
         # create latent features and attention weights
         use_perturbation = False
-        if (self.algorithm == "PGAPPO" or self.algorithm == "PIGAPPO") and global_step >= args.perturb_attention_start_step:
+        if self.algorithm in ["PGAPPO", "PIGAPPO"] and global_step >= args.perturb_attention_start_step:
             cycle_step = (global_step - args.perturb_attention_start_step) % \
-                 (args.normal_training_period + args.perturbation_period)
+                         (args.normal_training_period + args.perturbation_period)
             if cycle_step >= args.normal_training_period:
                 use_perturbation = True
         
+        # Set noise scale dynamically
         if use_perturbation:
-                latent_features, (edge_idx, att_logits) = self.gat_layer(x, edge_index, return_attention_weights=True)
-                att_logits_mean = att_logits.mean(dim=1) # Average over heads
-                edge_noise = self.precomputed_noise(edge_index, batch) # Precompute noise schedule for the batch size
-                att_logits_noise = att_logits_mean + edge_noise # Add noise to the attention logits
-                att_weights = softmax(att_logits_noise, index=edge_index[0]) # Recompute attention weights with noisy logits  
-                self.last_att_weights = (edge_idx, att_weights) # Store last attention weights
+            self.gat_layer.noise_scale = self.noise_scale
+            self.gat_layer.precomputed_noise(edge_index, batch)   
         else:
-            latent_features, att_weights = self.gat_layer(x, edge_index, return_attention_weights=True)
-            self.last_att_weights = att_weights # Store last attention weights
+            self.gat_layer.noise_scale = 0.0
+            self.gat_layer.edge_noise = None
+            
+        latent_features, att_weights = self.gat_layer(x, edge_index, return_attention_weights=True)
+        self.last_att_weights = att_weights # Store last attention weights
         return latent_features, att_weights
 
 add_random_module(GATLayer)
@@ -223,7 +259,7 @@ class Init_GAPPO(nn.Module):
 
         # Layers
         self.encoder = MLPEncoder(self.algorithm, input_features=self.input_features, embedding_dim=self.hidden_dim).to(self.device)
-        self.gat = GATLayer(self.algorithm, self.n_agents, self.device, self.args, embedding_dim=self.hidden_dim, heads=8).to(self.device)
+        self.gat = GATLayer(self.device, self.algorithm, self.n_agents, self.args, embedding_dim=self.hidden_dim, heads=8).to(self.device)
         self.action_layer = ActionLayer(self.algorithm, actions=actions, embedding_dim=self.hidden_dim).to(self.device)
         self.value_proc = lambda i1, i2: torch.cat([i1, i2], dim=-1)
         if self.algorithm in ["GAPPO", "PGAPPO"]:

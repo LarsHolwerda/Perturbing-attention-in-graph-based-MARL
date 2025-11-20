@@ -13,13 +13,13 @@ def parse_training_args():
     parser.add_argument(
         "--exp-name", 
         type=str, 
-        default="PGAPPO",
+        default="PIGAPPO",
         help="the name of this experiment")
 
     parser.add_argument(
         "--algorithm", 
         type=str, 
-        default="PGAPPO",
+        default="PIGAPPO",
         help="the algorithm which will be trained")
 
     parser.add_argument(
@@ -149,7 +149,7 @@ def parse_training_args():
     parser.add_argument(
         "--shared-backbone", 
         type=lambda x: bool(strtobool(x)),
-        default=True,
+        default=False,
         help="Whether to use a shared backbone for actor and critic in GAPPO"
     )
 
@@ -157,7 +157,7 @@ def parse_training_args():
     parser.add_argument(
         "--noise-scale",
         type=float,
-        default=0.3,
+        default=0.1,
         help="Scale of the noise to perturb attention logits"
     )
     
@@ -171,7 +171,7 @@ def parse_training_args():
     parser.add_argument(
         "--perturb-attention-start-step",
         type=int,
-        default=500,
+        default=250,
         help="Number of steps after which to start perturbing attention weights"
     )
 
@@ -250,7 +250,7 @@ def parse_training_args():
     parser.add_argument(
         "--env-steps-to-analyze",
         type=int,
-        default=0,
+        default=50000,
         help="Number of environment steps to store for analysis at the end of training"
     )
 

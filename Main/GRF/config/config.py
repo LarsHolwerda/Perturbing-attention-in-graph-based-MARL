@@ -92,6 +92,13 @@ def parse_training_args():
 
     # PPO
     parser.add_argument(
+        "--mappo",
+        type=lambda x: bool(strtobool(x)),
+        default="False",
+        help="Whether to share parameters across agents (MAPPO) or not (IPPO)"
+    )
+
+    parser.add_argument(
         "--clip-epsilon",
         type=float,
         default=0.2,
