@@ -1,0 +1,44 @@
+#!/bin/bash
+
+#SBATCH --job-name=ippo_baseline
+#SBATCH --output=/scratch/7990537/Hierarchical-graph-based-MARL-for-strategic-and-diverse-coordination/Main/GRF/logs/ippo_baseline_%j.out
+#SBATCH --error=/scratch/7990537/Hierarchical-graph-based-MARL-for-strategic-and-diverse-coordination/Main/GRF/logs/ippo_baseline_%j.err
+#SBATCH --time=24:00:00
+#SBATCH --nodes=1
+#SBATCH --ntasks=1
+#SBATCH --cpus-per-task=16
+#SBATCH --mem=16G
+#SBATCH --gres=gpu:1
+
+echo "Starting job on $(hostname) at $(date)"
+
+# Load conda environment
+
+cd /scratch/7990537/Hierarchical-graph-based-MARL-for-strategic-and-diverse-coordination/Main/Simple_tag
+
+/scratch/7990537/conda/envs/simple_tag/bin/python main.py --exp-name "IPPO" \
+               --algorithm "IPPO" \
+               --env-id "academy_counterattack_hard" \
+               --use-cuda True \
+               --number-of-workers 16 \
+               --seed 0 \
+               --track True \
+               --wandb-project-name "Google Research Football" \
+               --wandb-entity "lars-holwerda-utrecht-university" \
+               --env-steps-per-batch 4000 \
+               --n-iters 3 \
+               --num-epochs 45 \
+               --minibatch-size 2000 \
+               --learning-rate 0.00005 \
+               --max-grad-norm 5.0 \
+               --mappo False \
+               --clip-epsilon 0.2 \
+               --gamma 0.99 \
+               --lmbda 0.9 \
+               --entropy-eps 0.1 \
+               --max-steps 400 \
+               --n-agents 3 \
+               --record-steps 120000 \
+               --num-episodes-to-record 1
+
+echo "Job finished at $(date)"
