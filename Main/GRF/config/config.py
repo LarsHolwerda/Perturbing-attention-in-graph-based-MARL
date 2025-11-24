@@ -17,6 +17,12 @@ def parse_training_args():
         help="the name of this experiment")
     
     parser.add_argument(
+        "--algorithm", 
+        type=str, 
+        default="IPPO",
+        help="the algorithm which will be trained")
+    
+    parser.add_argument(
         "--env-id", 
         type=str, 
         default="academy_counterattack_hard",
@@ -26,8 +32,22 @@ def parse_training_args():
     parser.add_argument(
         "--use-cuda",
         type=lambda x: bool(strtobool(x)),
-        default="False",
+        default="True",
         help="Whether to use cuda"
+    )
+    
+    parser.add_argument(
+        "--number-of-workers",
+        type=int,
+        default=2,
+        help="Number of parallel workers"
+    )
+
+    parser.add_argument(
+        "--seed",
+        type=int,
+        default=0,
+        help="Random seed"
     )
 
     # Logging
@@ -60,7 +80,7 @@ def parse_training_args():
     parser.add_argument(
         "--n-iters",
         type=int,
-        default=1,
+        default=3,
         help="Number of sampling and training iterations"
     )
 
@@ -73,14 +93,16 @@ def parse_training_args():
     )
     parser.add_argument(
         "--minibatch-size",
+        "--minibatch_size",
         type=int,
         default=250,
         help="Size of mini-batches in each optimization step"
     )
     parser.add_argument(
         "--learning-rate",
+        "--learning_rate",
         type=float,
-        default=5e-4,
+        default=1e-4,
         help="Learning rate"
     )
     parser.add_argument(
@@ -94,7 +116,7 @@ def parse_training_args():
     parser.add_argument(
         "--mappo",
         type=lambda x: bool(strtobool(x)),
-        default="False",
+        default="True",
         help="Whether to share parameters across agents (MAPPO) or not (IPPO)"
     )
 
@@ -119,9 +141,54 @@ def parse_training_args():
     parser.add_argument(
         "--entropy-eps",
         type=float,
-        default=0.0001,
+        default=0.01,
         help="Entropy coefficient in PPO loss"
     )
+
+    # Gappo
+    parser.add_argument(
+        "--shared-backbone", 
+        type=lambda x: bool(strtobool(x)),
+        default=False,
+        help="Whether to use a shared backbone for actor and critic in GAPPO"
+    )
+
+    # PGAPPO / PIGAPPO
+    parser.add_argument(
+        "--noise-scale",
+        type=float,
+        default=0.1,
+        help="Scale of the noise to perturb attention logits"
+    )
+    
+    parser.add_argument(
+        "--window-size",
+        type=int,
+        default=30,
+        help="Size of the window for pre-computed noise for attention perturbation"
+    )
+
+    parser.add_argument(
+        "--perturb-attention-start-step",
+        type=int,
+        default=250,
+        help="Number of steps after which to start perturbing attention weights"
+    )
+
+    parser.add_argument(
+        "--normal-training-period",
+        type=int,
+        default=0,
+        help="Number of steps between perturbation periods, to stabilizes training"
+    )
+
+    parser.add_argument(
+        "--perturbation-period",
+        type=int,
+        default=1,
+        help="Number of steps during which to perturb attention weights"
+    )
+
 
     # Episode / Env
     parser.add_argument(
@@ -137,19 +204,26 @@ def parse_training_args():
         help="Number of agents in the environment"
     )
 
-    parser.add_argument(
-        "--n_opponents",
-        type=int,
-        default=2,
-        help="Number of opponents in the environment"
-    )
-
     # Recording
     parser.add_argument(
         "--record-steps",
         type=int,
         default=0,
         help="Number of steps between video recordings"
+    )
+
+    parser.add_argument(
+        "--num-episodes-to-record",
+        type=int,
+        default=1,
+        help="Number of episodes to record per video"
+    )
+
+    parser.add_argument(
+        "--env-steps-to-analyze",
+        type=int,
+        default=50000,
+        help="Number of environment steps to store for analysis at the end of training"
     )
 
     args = parser.parse_args()

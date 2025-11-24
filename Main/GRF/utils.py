@@ -98,9 +98,8 @@ def upload_videos_to_wandb(video_dir="./traces", scenario=None, algorithm=None, 
         except Exception as e:
             print(f"Failed to upload or delete {mp4_path}: {e}")
 
-def compute_behavioral_diversity(subdata):
-    logits = subdata.get(("player", "logits"))
-    n_agents = logits.shape[1]
+def compute_behavioral_diversity(tensordict_data, n_agents):
+    logits = tensordict_data.get(("player", "logits"))
 
     distances = {}
     for i, j in combinations(range(n_agents), 2):

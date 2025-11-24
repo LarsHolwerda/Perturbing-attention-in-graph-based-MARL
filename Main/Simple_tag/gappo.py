@@ -145,6 +145,8 @@ class NoisyGATv2Conv(GATv2Conv):
 
         # Map noise to their edges
         edge_noise = base_noise[unique_indices, local_idx]
+        
+        # Expands noise to match the number of attention heads
         edge_noise = edge_noise.unsqueeze(-1).expand(-1, self.heads)
         self.edge_noise = edge_noise  
 
@@ -163,6 +165,7 @@ class NoisyGATv2Conv(GATv2Conv):
 
         x = F.leaky_relu(x, self.negative_slope)
         alpha = (x * self.att).sum(dim=-1)
+        # Add noise to attention logits
         if self.edge_noise is not None:
             alpha = alpha + self.edge_noise
         alpha = softmax(alpha, index, ptr, dim_size)

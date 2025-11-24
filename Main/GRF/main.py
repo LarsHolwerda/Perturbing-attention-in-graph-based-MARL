@@ -8,7 +8,7 @@ if __name__ == "__main__":
     from tensordict.nn import set_composite_lp_aggregate
     from config.config import parse_training_args
     from env import create_env
-    from gappo import GAPPO
+    #from gappo import GAPPO
     from ppo import PPO
     from torchrl.envs import ParallelEnv
 
@@ -24,10 +24,10 @@ if __name__ == "__main__":
     algorithms = {
         "MAPPO": PPO, # with args.mappo == True
         "IPPO": PPO, # with args.mappo == False
-        "GAPPO": GAPPO, # with args.shared_backbone == True
-        "IGAPPO": GAPPO, # with args.shared_backbone == False
-        "PGAPPO": GAPPO, # with args.shared_backbone == True and args.perturb_attention_logits == True
-        "PIGAPPO": GAPPO, # with args.shared_backbone == False and args.perturb_attention_logits == True
+        #"GAPPO": GAPPO, # with args.shared_backbone == True
+        #"IGAPPO": GAPPO, # with args.shared_backbone == False
+        #"PGAPPO": GAPPO, # with args.shared_backbone == True and args.perturb_attention_logits == True
+        #"PIGAPPO": GAPPO, # with args.shared_backbone == False and args.perturb_attention_logits == True
     }
 
     # disable log-prob aggregation

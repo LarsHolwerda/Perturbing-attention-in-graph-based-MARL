@@ -50,19 +50,20 @@ class Train:
             tensordict_data = tensordict_data.to(self.args.device)
             steps_in_batch = self.args.env_steps_per_batch
             self.global_step += steps_in_batch
-            for group, policy in self.policies.items():
-                policy_module = policy.module  # ModuleList
-                for module in policy_module:  # TensorDictModule
-                    if isinstance(module, TensorDictModule):
-                        actor_head = module.module
-                        if self.args.algorithm in ["GAPPO", "PGAPPO"]:
-                            backbone = actor_head.base_model  # Shared backbone
-                            backbone.global_step = self.global_step
-                        elif self.args.algorithm in ["IGAPPO", "PIGAPPO"]:
-                            for backbone in actor_head.base_model:  # Individual backbones
-                                backbone.global_step = self.global_step
-                    else:
-                        continue
+	    if self.args.algorithm in ["GAPPO", "IGAPPO", "PGAPPO", "PIGAPPO"]:
+            	for group, policy in self.policies.items():
+                	policy_module = policy.module  # ModuleList
+                	for module in policy_module:  # TensorDictModule
+                    	if isinstance(module, TensorDictModule):
+                        	actor_head = module.module
+                        	if self.args.algorithm in ["GAPPO", "PGAPPO"]:
+                            	backbone = actor_head.base_model  # Shared backbone
+                            	backbone.global_step = self.global_step
+                        	elif self.args.algorithm in ["IGAPPO", "PIGAPPO"]:
+                            	for backbone in actor_head.base_model:  # Individual backbones
+                                	backbone.global_step = self.global_step
+                    	else:
+                        	continue
         
             # For (P)GAPPO/(P)IGAPPO we want to store the states, actions and adjacency weights for analysis
             if self.args.algorithm in ["GAPPO", "IGAPPO", "PGAPPO", "PIGAPPO"] and self.global_step > self.args.total_env_steps - self.args.env_steps_to_analyze:

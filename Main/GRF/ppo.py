@@ -30,7 +30,7 @@ import time
 
 
 
-class PPO:
+class PPO(Train):
     def __init__(self, env, args):
         self.args = args
         self.env = env
@@ -47,7 +47,7 @@ class PPO:
         depth=3,
         num_cells=[256, 128, 64],
         activation_class=torch.nn.ReLU,
-        )
+        ).to(args.device)
         apply_orthogonal_init(self.policy_net)
 
 
@@ -55,7 +55,7 @@ class PPO:
             self.policy_net,
             in_keys=[("player", "observation")],
             out_keys=[("player", "logits")],
-        )
+        ).to(args.device)
 
         self.policy = ProbabilisticActor(
             module=policy_module,
@@ -64,7 +64,7 @@ class PPO:
             out_keys=[env.action_key],
             distribution_class=Categorical,
             return_log_prob=True,
-        )  # we'll need the log-prob for the PPO loss
+        ).to(args.device)  # we'll need the log-prob for the PPO loss
 
 
         critic_net = MultiAgentMLP(
@@ -77,14 +77,14 @@ class PPO:
             depth=3,
             num_cells=[256, 128, 64],
             activation_class=torch.nn.ReLU,
-        )
+        ).to(args.device)
         apply_orthogonal_init(critic_net)
 
         self.critic = TensorDictModule(
             module=critic_net,
             in_keys=[("player", "observation")],
             out_keys=[("player", "state_value")],
-        )
+        ).to(args.device)
 
 
         self.collector = SyncDataCollector(
