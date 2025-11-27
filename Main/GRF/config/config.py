@@ -25,21 +25,21 @@ def parse_training_args():
     parser.add_argument(
         "--env-id", 
         type=str, 
-        default="academy_counterattack_hard",
+        default="academy_3_vs_1_with_keeper",
         help="the id of the environment")
     
     # Device configuration
     parser.add_argument(
         "--use-cuda",
         type=lambda x: bool(strtobool(x)),
-        default="True",
+        default="False",
         help="Whether to use cuda"
     )
     
     parser.add_argument(
         "--number-of-workers",
         type=int,
-        default=2,
+        default=1,
         help="Number of parallel workers"
     )
 
@@ -80,7 +80,7 @@ def parse_training_args():
     parser.add_argument(
         "--n-iters",
         type=int,
-        default=3,
+        default=2,
         help="Number of sampling and training iterations"
     )
 
@@ -208,7 +208,7 @@ def parse_training_args():
     parser.add_argument(
         "--record-steps",
         type=int,
-        default=0,
+        default=100000,
         help="Number of steps between video recordings"
     )
 

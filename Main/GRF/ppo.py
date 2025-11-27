@@ -110,7 +110,8 @@ class PPO(Train):
             clip_epsilon=args.clip_epsilon,
             entropy_coef=args.entropy_eps,
             normalize_advantage=False,  # Important to avoid normalizing across the agent dimension
-        )
+        ).to(args.device)
+
         self.loss_module.set_keys(  # We have to tell the loss where to find the keys
             reward=env.reward_key,
             action=env.action_key,

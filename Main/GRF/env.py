@@ -18,9 +18,9 @@ args = parse_training_args()
 def create_env(seed=None):
     
     raw_env = gfootball_pettingzoo_v1.parallel_env(
-        'academy_counterattack_hard',
+        args.env_id,
         representation='simplev1', 
-        number_of_left_players_agent_controls=3,
+        number_of_left_players_agent_controls=args.n_agents,
     ) 
     if seed is not None: 
         raw_env.reset(seed=seed)
@@ -42,10 +42,10 @@ def create_env(seed=None):
 
 def create_render_env():
     render_env = create_environment(
-    env_name='academy_counterattack_hard',
+    env_name=args.env_id,
     representation='simplev1',
     render=True,
-    number_of_left_players_agent_controls=3,
+    number_of_left_players_agent_controls=args.n_agents,
     write_full_episode_dumps=True,
     write_video=True,
     logdir="./traces",

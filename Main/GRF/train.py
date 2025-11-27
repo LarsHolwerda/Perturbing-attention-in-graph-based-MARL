@@ -15,7 +15,7 @@ class Train:
         self.losses = losses
         self.optimizers = optimizers
         self.global_step = 0
-        self.agent_frozen = False
+        self.pass_sequences = []
         self.perturb_attention_logits = False
         if self.args.algorithm in ["GAPPO", "IGAPPO", "PGAPPO", "PIGAPPO"]:
             self.analysis_data = {
@@ -46,7 +46,9 @@ class Train:
             print(f"[DEBUG] Collector time: {collector_time:.3f}s")
             tensordict_data = tensordict_data.to(self.args.device)
             steps_in_batch = self.args.env_steps_per_batch
+
             self.global_step += steps_in_batch
+            # Update global step in the backbone(s) for attention perturbation scheduling
             if self.args.algorithm in ["GAPPO", "IGAPPO", "PGAPPO", "PIGAPPO"]:
                 for policy in self.policies.items():
                     policy_module = policy.module  # ModuleList
@@ -61,7 +63,11 @@ class Train:
                                     backbone.global_step = self.global_step
                         else:
                             continue
-        
+            
+            # Pass sequence extraction for analysis
+            
+
+
             # For (P)GAPPO/(P)IGAPPO we want to store the states, actions and adjacency weights for analysis
             if self.args.algorithm in ["GAPPO", "IGAPPO", "PGAPPO", "PIGAPPO"] and self.global_step > self.args.total_env_steps - self.args.env_steps_to_analyze:
                 obs = tensordict_data.get(("observation")).detach().cpu()
