@@ -202,3 +202,4 @@ def att_to_frame(edge_index, att_values, n_agents, n_adv):
     buf.seek(0)
     img = Image.open(buf).convert("RGB")
     return np.array(img)
+

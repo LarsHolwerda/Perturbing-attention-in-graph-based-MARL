@@ -39,7 +39,7 @@ def parse_training_args():
     parser.add_argument(
         "--number-of-workers",
         type=int,
-        default=1,
+        default=2,
         help="Number of parallel workers"
     )
 
@@ -80,7 +80,7 @@ def parse_training_args():
     parser.add_argument(
         "--n-iters",
         type=int,
-        default=2,
+        default=5,
         help="Number of sampling and training iterations"
     )
 
@@ -225,6 +225,51 @@ def parse_training_args():
         default=50000,
         help="Number of environment steps to store for analysis at the end of training"
     )
+
+    # SIPO
+    parser.add_argument(
+        "--policy-iterations",
+        type=int,
+        default=2,
+        help="Number of policy iterations to train with SIPO"
+    )
+    parser.add_argument(
+        "--alpha",
+        type=float,
+        default=0.1,
+        help="Intrinsic reward scale"
+    )
+    parser.add_argument(
+        "--delta",
+        type=float,
+        default=0.002,
+        help="Minimal distance requirement"
+    )
+    parser.add_argument(
+        "--lambda-lr",
+        type=float,
+        default=0.1,
+        help="Learning rate for lagrange multipliers"
+    )
+    parser.add_argument(
+        "--wd-lr",
+        type=float,
+        default=4.0e-4,
+        help="Learning rate for Wasserstein critic"
+    )
+    parser.add_argument(
+        "--lambda-max",
+        type=float,
+        default=10.0,
+        help="Maximum value for lagrange multipliers"
+    )
+    parser.add_argument(
+        "--obs-dim",
+        type=int,
+        default=58,
+        help="Dimension of the observation space"
+    )
+
 
     args = parser.parse_args()
 

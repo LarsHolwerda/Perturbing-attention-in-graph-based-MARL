@@ -20,6 +20,7 @@ def create_env(seed=None):
     raw_env = gfootball_pettingzoo_v1.parallel_env(
         args.env_id,
         representation='simplev1', 
+        rewards="scoring, checkpoints",
         number_of_left_players_agent_controls=args.n_agents,
     ) 
     if seed is not None: 

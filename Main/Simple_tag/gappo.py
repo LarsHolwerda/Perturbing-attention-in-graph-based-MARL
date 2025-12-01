@@ -114,9 +114,13 @@ class NoisyGATv2Conv(GATv2Conv):
         self.window_size = window_size
         self.num_envs = num_envs
         self.edge_noise = None
+        self.perturb_active = False
 
     def precomputed_noise(self, edge_index, batch):
         """Precompute per-env noise schedule for the next batch."""
+        if not self.perturb_active:
+            return
+        
         # Source nodes of edges
         src_nodes = edge_index[0] 
 
@@ -166,14 +170,17 @@ class NoisyGATv2Conv(GATv2Conv):
         x = F.leaky_relu(x, self.negative_slope)
         alpha = (x * self.att).sum(dim=-1)
         # Add noise to attention logits
-        if self.edge_noise is not None:
+        if self.perturb_active and self.edge_noise is not None:
             alpha = alpha + self.edge_noise
         alpha = softmax(alpha, index, ptr, dim_size)
         alpha = F.dropout(alpha, p=self.dropout, training=self.training)
         return alpha
     
-
-
+    def forward(self, x, edge_index, edge_attr=None, return_attention_weights=False):
+        # If perturbation inactive, act exactly like base GATv2Conv
+        if not self.perturb_active:
+            return super().forward(x, edge_index, edge_attr, return_attention_weights=return_attention_weights)
+        return super().forward(x, edge_index, edge_attr, return_attention_weights=return_attention_weights)
 class GATLayer(nn.Module):
     """
         Graph Attention convolution mechanism: Creates latent features by combining agent's observations with
@@ -191,6 +198,7 @@ class GATLayer(nn.Module):
         self.window_size = args.window_size
         self.num_edges = self.n_agents * self.n_agents
         self.gat_layer = NoisyGATv2Conv(embedding_dim, embedding_dim, heads=heads, concat=False, device=self.device, noise_scale=args.noise_scale, num_edges=self.num_edges, window_size=self.window_size, num_envs=self.num_envs)
+        
 
     def forward(self, x, edge_index, batch, global_step, args):
         """
@@ -203,6 +211,7 @@ class GATLayer(nn.Module):
         """
         # create latent features and attention weights
         use_perturbation = False
+
         if self.algorithm in ["PGAPPO", "PIGAPPO"] and global_step >= args.perturb_attention_start_step:
             cycle_step = (global_step - args.perturb_attention_start_step) % \
                          (args.normal_training_period + args.perturbation_period)
@@ -211,6 +220,7 @@ class GATLayer(nn.Module):
         
         # Set noise scale dynamically
         if use_perturbation:
+            self.gat_layer.perturb_active = True
             self.gat_layer.noise_scale = self.noise_scale
             self.gat_layer.precomputed_noise(edge_index, batch)   
         else:

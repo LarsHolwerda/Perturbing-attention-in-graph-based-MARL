@@ -1,5 +1,6 @@
 import torch
 from tensordict.nn import TensorDictModule
+import sipo
 from utils import coo_to_dense_weights_batched, log_metrics, record_video, upload_videos_to_wandb, compute_behavioral_diversity
 import time
 from tqdm import tqdm
@@ -15,7 +16,6 @@ class Train:
         self.losses = losses
         self.optimizers = optimizers
         self.global_step = 0
-        self.pass_sequences = []
         self.perturb_attention_logits = False
         if self.args.algorithm in ["GAPPO", "IGAPPO", "PGAPPO", "PIGAPPO"]:
             self.analysis_data = {
@@ -28,7 +28,7 @@ class Train:
     def train(self):
         # Initialize progress bar
         print("Starting training...")
-        pbar = tqdm(total=self.args.n_iters, desc="episode_reward_mean = 0")
+        pbar = tqdm(total=self.args.n_iters - 1, desc="episode_reward_mean = 0")
         self.global_step = 0
         next_record_step = self.args.record_steps  
         # Initialize collector iterator
@@ -64,64 +64,11 @@ class Train:
                         else:
                             continue
             
-            # Pass sequence extraction for analysis
-            
+            # add intrinsic reward to push diversity
+            tensordict_data = self.sipo.compute_intrinsic_reward(tensordict_data)
 
-
-            # For (P)GAPPO/(P)IGAPPO we want to store the states, actions and adjacency weights for analysis
-            if self.args.algorithm in ["GAPPO", "IGAPPO", "PGAPPO", "PIGAPPO"] and self.global_step > self.args.total_env_steps - self.args.env_steps_to_analyze:
-                obs = tensordict_data.get(("observation")).detach().cpu()
-                acts = tensordict_data.get(("action")).detach().cpu()
-                terminated = tensordict_data.get(("next", "terminated")).detach().cpu()
-                with torch.no_grad():
-                    
-                    # To get the adjacency weights, we need to pass the observations through the policy network and retrieve them
-                    policy_module = self.policies.module[0]
-                    actor_head = policy_module.module
-                    if self.args.algorithm in ["GAPPO", "PGAPPO"]:
-                        base_model = actor_head.base_model  
-                        obs = obs.to(self.args.device)    
-                        _ = base_model(obs)
-                        
-                        edge_index, att_values = base_model.gat.last_att_weights
-                        geo_batch = base_model.geo_batch
-                        # Convert attention to dense adjacency per sample
-                        adj_weights = coo_to_dense_weights_batched(
-                            edge_index, att_values, geo_batch.batch, self.args.n_adversaries, self.args.number_of_workers
-                        )
-                    
-                    elif self.args.algorithm in ["IGAPPO", "PIGAPPO"]:
-                        obs = obs.to(self.args.device)  
-                        has_time_dim = obs.dim() == 4  
-                        if has_time_dim:  # [B, T, N, obs_dim]
-                            B, T, N, obs_dim = obs.shape
-                            obs = obs.view(B * T, N, obs_dim)
-                        else:
-                            B, N, _ = obs.shape
-                        # Get encodings for each agent
-                        enc_by_backbone = []
-                        for agent_idx, independent_actor_head in enumerate(policy_module.base_model):
-                            obs_agent = obs[:, agent_idx:agent_idx+1, :].to(self.args.device)
-                            enc_agent = independent_actor_head.encoder(obs_agent)
-                            enc_by_backbone.append(enc_agent)
-                        adj_weights = {}
-                        # Get adjacency weights for each agent
-                        for agent_idx, independent_actor_head in enumerate(policy_module.base_model):
-                            _ = independent_actor_head(obs, enc_by_backbone, agent_idx)
-
-                            edge_index, att_values = independent_actor_head.gat.last_att_weights
-                            geo_batch = independent_actor_head.geo_batch
-                            # Convert attention to dense adjacency per sample
-                            adj_dense = coo_to_dense_weights_batched(
-                                edge_index, att_values, geo_batch.batch, self.args.n_adversaries, self.args.number_of_workers
-                            ).detach().to(self.args.device)
-                            adj_weights[f"agent_{agent_idx}"] = adj_dense
-
-                    # Append to analysis data
-                    self.analysis_data["observations"].append(obs)
-                    self.analysis_data["actions"].append(acts)
-                    self.analysis_data["adjacency"].append(adj_weights)
-                    self.analysis_data["done"].append(terminated)
+            # Store sampled states in the archive trajectories
+            self.sipo.store_archive(tensordict_data)
 
             # We need to expand the done and terminated to match the reward shape (this is expected by the value estimator)
             tensordict_data.set(
@@ -235,7 +182,3 @@ class Train:
             print("done iteration")
         
         del self.collector
-        if self.args.algorithm in ["GAPPO", "IGAPPO", "PGAPPO", "PIGAPPO"]:
-            output_file = f"{self.args.env_id}__{self.args.exp_name}__{self.args.seed}__{int(time.time())}.pt"
-            torch.save(self.analysis_data, f"analysis/{output_file}")
-            print(f"Analysis data saved to analysis/{output_file}")

@@ -10,6 +10,8 @@ if __name__ == "__main__":
     from env import create_env
     #from gappo import GAPPO
     from ppo import PPO
+    from sipo import SIPO_WD
+
     from torchrl.envs import ParallelEnv
 
     if torch.cuda.is_available():
@@ -57,24 +59,39 @@ if __name__ == "__main__":
             name=run_name,
             save_code=True,
         )
-        #sweep_config = wandb.config
-        #args.learning_rate = sweep_config.get("learning_rate", args.learning_rate)
-        #args.minibatch_size = sweep_config.get("minibatch_size", args.minibatch_size)
-    # Create env
-    num_workers = args.number_of_workers
-    worker_seeds = [args.seed + i for i in range(num_workers)]
-    iter_seeds = iter(worker_seeds)
-    env = ParallelEnv(num_workers, lambda idx=None: create_env(seed=worker_seeds[idx] if idx is not None else worker_seeds[0]), share_individual_td=True)
 
-    # Set algorithm to train on
-    if args.algorithm not in algorithms:
-        raise ValueError(f"Unknown algorithm: {args.algorithm}. Choose from {list(algorithms.keys())}")
-    algorithm = algorithms[args.algorithm]
-    trainer_algorithm = algorithm(env, args)
+    sipo_init = SIPO_WD(args)
+    
+    for policy_iteration in range(args.policy_iterations):
+        print(f"Policy iteration {policy_iteration + 1} / {args.policy_iterations}")
 
-    # Train the policy
-    trainer_algorithm.train()
+        # Create env
+        num_workers = args.number_of_workers
+        worker_seeds = [args.seed + i for i in range(num_workers)]
+        iter_seeds = iter(worker_seeds)
+        env = ParallelEnv(num_workers, lambda idx=None: create_env(seed=worker_seeds[idx] if idx is not None else worker_seeds[0]), share_individual_td=True)
 
+        # Set algorithm to train on
+        if args.algorithm not in algorithms:
+            raise ValueError(f"Unknown algorithm: {args.algorithm}. Choose from {list(algorithms.keys())}")
+        algorithm = algorithms[args.algorithm]
+        trainer_algorithm = algorithm(env, args)
+
+        # Make sipo_init available inside trainer_algorithm.train() to compute intrinsic rewards
+        trainer_algorithm.sipo = sipo_init
+
+        # Initialize SIPO for new iteration
+        sipo_init.start_new_iteration()
+
+        # Train the policy
+        trainer_algorithm.train()
+
+        # Concatenate all collected trajectories from this iteration
+        collected_states = torch.cat(sipo_init.collected_states, dim=0)  
+        # Clear the list for the next iteration
+        sipo_init.collected_states.clear()
+        # Save the concatenated trajectories into SIPO’s archive
+        sipo_init.save_archive(collected_states)
     # Log results
     if args.track:
         wandb.finish()
