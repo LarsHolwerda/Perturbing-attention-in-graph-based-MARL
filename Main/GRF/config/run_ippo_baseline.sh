@@ -26,7 +26,7 @@ cd /scratch/7990537/Hierarchical-graph-based-MARL-for-strategic-and-diverse-coor
                --wandb-project-name "Google Research Football" \
                --wandb-entity "lars-holwerda-utrecht-university" \
                --env-steps-per-batch 9600 \
-               --n-iters 3 \
+               --n-iters 261 \
                --num-epochs 45 \
                --minibatch-size 3200 \
                --learning-rate 0.0005 \
@@ -39,6 +39,8 @@ cd /scratch/7990537/Hierarchical-graph-based-MARL-for-strategic-and-diverse-coor
                --max-steps 200 \
                --n-agents 3 \
                --record-steps 500000 \
-               --num-episodes-to-record 1
+               --num-episodes-to-record 1 \
+               --policy-iterations 10 \
+               --obs-dim 58
 
 echo "Job finished at $(date)"

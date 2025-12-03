@@ -48,7 +48,7 @@ def record_video(multi_agent_policy, algorithm, n_agents, n_adv, device, video_p
     td = env.reset()
     multi_agent_policy.to(device)
     multi_agent_policy.eval()
-    if algorithm == "IGAPPO":
+    if algorithm in ["IGAPPO", "PIGAPPO"]:
         policy = multi_agent_policy[0]  # ProbabilisticActor
         actor_head = policy.module[0].module  # TensorDictModule -> ActorHead
         base_models = getattr(actor_head, "base_models", [actor_head.base_model])  
@@ -75,7 +75,7 @@ def record_video(multi_agent_policy, algorithm, n_agents, n_adv, device, video_p
             # policy forward -> only returns actions
             td_actions = multi_agent_policy(td_device)
 
-            if algorithm == "GAPPO":
+            if algorithm in ["GAPPO", "PGAPPO"]:
             # To capture attention we need to access last_att_weights from GAT
                 policy = multi_agent_policy[0] # ProbabilisticActor
                 actor_head = policy.module[0].module # TensorDictModule -> ActorHead
@@ -84,7 +84,7 @@ def record_video(multi_agent_policy, algorithm, n_agents, n_adv, device, video_p
                 att_frame = att_to_frame(edge_index, att_values, n_agents=n_agents, n_adv=n_adv) # convert attention weights to frames
                 att_frames.append(att_frame) 
 
-            if algorithm == "IGAPPO":
+            if algorithm in ["IGAPPO", "PIGAPPO"]:
             # To capture attention we need to access last_att_weights from GAT
                 for agent, init_gappo in enumerate(init_gappos):
                     edge_index, att_values = init_gappo.gat.last_att_weights
@@ -112,12 +112,12 @@ def record_video(multi_agent_policy, algorithm, n_agents, n_adv, device, video_p
     # Save as MP4
     imageio.mimwrite(video_path, frames, fps=10)
     print(f"Video saved to {video_path}")
-    if algorithm == "GAPPO":
+    if algorithm in ["GAPPO", "PGAPPO"]:
         att_path = video_path.replace(".mp4", "_att.mp4")
         imageio.mimwrite(att_path, att_frames, fps=10)
         print(f"Attention video saved to {att_path}")
     # Save attention video if IGAPPO
-    if algorithm == "IGAPPO":
+    if algorithm in ["IGAPPO", "PIGAPPO"]:
         for agent, frames_list in enumerate(agent_att_frames):
             att_path = video_path.replace(".mp4", f"_att_{agent}.mp4")
             imageio.mimwrite(att_path, frames_list, fps=10)

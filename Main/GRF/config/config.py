@@ -74,7 +74,7 @@ def parse_training_args():
     parser.add_argument(
         "--env-steps-per-batch",
         type=int,
-        default=250,
+        default=1000,
         help="Number of frames collected per training iteration"
     )
     parser.add_argument(
@@ -95,7 +95,7 @@ def parse_training_args():
         "--minibatch-size",
         "--minibatch_size",
         type=int,
-        default=250,
+        default=1000,
         help="Size of mini-batches in each optimization step"
     )
     parser.add_argument(
@@ -116,7 +116,7 @@ def parse_training_args():
     parser.add_argument(
         "--mappo",
         type=lambda x: bool(strtobool(x)),
-        default="True",
+        default="False",
         help="Whether to share parameters across agents (MAPPO) or not (IPPO)"
     )
 
@@ -208,7 +208,7 @@ def parse_training_args():
     parser.add_argument(
         "--record-steps",
         type=int,
-        default=100000,
+        default=5000,
         help="Number of steps between video recordings"
     )
 
@@ -219,18 +219,11 @@ def parse_training_args():
         help="Number of episodes to record per video"
     )
 
-    parser.add_argument(
-        "--env-steps-to-analyze",
-        type=int,
-        default=50000,
-        help="Number of environment steps to store for analysis at the end of training"
-    )
-
     # SIPO
     parser.add_argument(
         "--policy-iterations",
         type=int,
-        default=2,
+        default=3,
         help="Number of policy iterations to train with SIPO"
     )
     parser.add_argument(

@@ -1,6 +1,7 @@
 import torch
 import copy
-
+import numpy as np
+from utils import log_metrics
 class WD_Critic(torch.nn.Module):
     def __init__(self, obs_dim, hidden=256):
         super().__init__()
@@ -24,9 +25,9 @@ class SIPO_WD:
         self.wd_lr = args.wd_lr
         self.lambda_max = args.lambda_max
         
-        # list of tensors of each iteration, each tensor is [num_states, obs_dim]
+        # List of tensors of each iteration, each tensor is [num_states, obs_dim]
         self.archive = [] 
-        self.collected_states = []
+        self.collected_trajectories = []
         # Current iterations WD critic and optimizer
         self.current_wd = None
         self.current_wd_opt = None
@@ -44,7 +45,7 @@ class SIPO_WD:
         self.current_wd_opt = torch.optim.Adam(self.current_wd.parameters(), lr=self.wd_lr)
 
     # Compute intrinsic reward, update WD critic, and update lagrange multipliers
-    def compute_intrinsic_reward(self, tensordict_data):
+    def compute_intrinsic_reward(self, tensordict_data, global_step):
         # Get observations from current batch and reshape when necessary
         obs = tensordict_data.get(("player", "observation"))
         print(f"obs shape: {obs.shape}")
@@ -57,20 +58,14 @@ class SIPO_WD:
 
         # Update Wasserstein critic using current batch + archived states
         if len(self.archive) > 0:
-            # Concatenate all past archive states
-            all_archive_states = torch.cat(self.archive, dim=0)
-
-            # Sample batch same size as current data
-            idx = torch.randint(
-                low=0,
-                high=all_archive_states.size(0),
-                size=(flat_obs.size(0),),
-                device=self.args.device,
-            ) # Get random indices for sampling
-            archive_batch = all_archive_states[idx].to(self.args.device) # Sampled archived states
-
+            # Sample a block from the archive
+            iter_idx = len(self.archive) - 1 # Use the most recent archive for critic update
+            idx = np.random.randint(0, len(self.archive[iter_idx]))
+            archived_obs = self.archive[iter_idx][idx] 
+            archived_obs_flat = archived_obs.reshape(-1, O)
+            
             current_batch_scores = self.current_wd(flat_obs) # output of critic for current states
-            archived_scores = self.current_wd(archive_batch) # output of critic for archived states
+            archived_scores = self.current_wd(archived_obs_flat) # output of critic for archived states
 
             wd_loss = -(current_batch_scores.mean() - archived_scores.mean()) # Wasserstein loss
 
@@ -80,65 +75,67 @@ class SIPO_WD:
             self.current_wd_opt.step()
 
         # Compute intrinsic reward from all previous critics
-        r_int_total = torch.zeros((E, B, N), device=self.args.device)
+        int_r_total = torch.zeros((E, B, N), device=self.args.device)
 
         # For each previous critic, compute intrinsic reward
         for j, (lambda_j, critic_j, archive_j) in enumerate(zip(self.lambdas, self.wd_critics, self.archive)):
+            # Sample a block of length B from the previous archive
+            idx = np.random.randint(0, len(archive_j))
+            previous_archived_obs = archive_j[idx].to(self.args.device)   
+            previous_archived_obs_flat = previous_archived_obs.reshape(-1, O)
+            
             # Compute critic scores for the current batch and archive mean score
             critic_scores = critic_j(flat_obs).reshape(E, B, N)
-            archive_mean = critic_j(archive_j.to(self.args.device)).mean()
-
+            archive_mean = critic_j(previous_archived_obs_flat).mean()
             # Compute intrinsic reward per step according to the wasserstein critic
             r_j = critic_scores - archive_mean
 
             # Compute (lagrange multiplier * intrinsic reward) for the actually added intrinsic reward
-            r_int_total += lambda_j * r_j
+            int_r_total += lambda_j * r_j
 
-        r_int = r_int_total.unsqueeze(-1).detach()  # [num_envs, B, N, 1] 
+            # Gradient ascent on λ_j
+            new_lambda = self.lambdas[j] + self.lambda_lr * (-r_j.mean() + self.delta)
+            self.lambdas[j] = new_lambda.clamp(0.0, self.lambda_max)
+
+            # Logging
+            r_j_mean = r_j.mean().item()
+            lambda_update = (-r_j_mean + self.delta)
+            lambda_value = self.lambdas[j].item()
+
+            log_metrics({
+                f"sipo/critic_{j}/intrinsic_reward": r_j_mean,
+                f"sipo/critic_{j}/lambda_update": lambda_update,
+                f"sipo/critic_{j}/lambda_value": lambda_value,
+            }, step=global_step, use_wandb=self.args.track)
+
+        int_r = int_r_total.unsqueeze(-1).detach()  # [num_envs, B, N, 1] 
+
+        # Logging overall metrics
+        log_metrics({
+            "sipo/intrinsic_reward_mean": int_r.mean().item(),
+            "sipo/scaled_intrinsic_reward_mean": (self.alpha * int_r_total).mean().item(),
+            "sipo/wd_loss": wd_loss.item() if len(self.archive) > 0 else 0.0,
+        }, step=global_step, use_wandb=self.args.track)
 
         # Add intrinsic reward to environment reward
         env_reward = tensordict_data.get(("next", "player", "reward"))  
-        new_reward = env_reward + self.alpha * r_int
+        new_reward = env_reward + self.alpha * int_r
         tensordict_data.set(("next", "player", "reward"), new_reward)
-
-
-        # Update langrange multipliers for previous critics
-        if len(self.archive) > 0:
-            r_j_list = []
-            for j, (critic_j, archive_j) in enumerate(zip(self.wd_critics, self.archive)):
-                critic_scores = critic_j(flat_obs).reshape(E, B, N)
-                archive_mean = critic_j(archive_j.to(self.args.device)).mean()
-                r_j = critic_scores - archive_mean
-                r_j_list.append(r_j.mean())
-
-            # Gradient ascent on λ_j
-            for j in range(len(self.lambdas)):
-                new_lambda = self.lambdas[j] + self.lambda_lr * (-r_j_list[j] + self.delta)
-                self.lambdas[j] = new_lambda.clamp(0.0, self.lambda_max)
 
         return tensordict_data
 
+    # Store sampled states from current batch into collected_trajectories
     def store_archive(self, tensordict_data):
         obs = tensordict_data.get(("player", "observation")).detach().cpu()
-        if obs.ndim == 4:       # [T, B, N, D]
-            E, B, N, O = obs.shape
-            obs = obs.reshape(E * B * N, O)
-        elif obs.ndim == 3:     # [B, N, D]
-            B, N, O = obs.shape
-            obs = obs.reshape(B * N, O)
+        self.collected_trajectories.append(obs.clone())
         
-        num_states = obs.size(0)
-        k = max(1, int(0.10 * num_states))
-        idx = torch.randperm(num_states, device=obs.device)[:k]
-        sampled_states = obs[idx]            
-        self.collected_states.append(sampled_states)
 
     # Save trajectories from the current iteration
-    def save_archive(self, collected_states):
+    def save_archive(self, collected_trajectories):
         # collected_trajectories: [T, obs_dim]
         with torch.no_grad():
-            traj = collected_states.cpu()
-            self.archive.append(traj)
+            traj_copy = copy.deepcopy(collected_trajectories)
+            self.archive.append(traj_copy)
 
             # Save the critic of this iteration
             self.wd_critics.append(copy.deepcopy(self.current_wd).eval())

@@ -243,7 +243,7 @@ def parse_training_args():
     parser.add_argument(
         "--record-steps",
         type=int,
-        default=40000,
+        default=500,
         help="Number of steps between video recordings"
     )
 

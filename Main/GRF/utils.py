@@ -98,24 +98,34 @@ def upload_videos_to_wandb(video_dir="./traces", scenario=None, algorithm=None, 
         except Exception as e:
             print(f"Failed to upload or delete {mp4_path}: {e}")
 
-def compute_behavioral_diversity(tensordict_data, n_agents):
-    logits = tensordict_data.get(("player", "logits"))
-
+def compute_behavioral_diversity(tensordict_data, policy, n_agents):
+    obs = tensordict_data.get(("player", "observation"))  # (num_envs, batch, n_agents, obs_dim)
+    # Get the observation of the first agent in that environment
+    obs_one_agent = obs[:, :, 0, :] 
+    # Adds an agent dimension with the same observation for all agents
+    same_obs_all_agents = obs_one_agent.unsqueeze(2).repeat(1, 1, n_agents, 1)  
     distances = {}
-    for i, j in combinations(range(n_agents), 2):
-        logits_i = logits[:, i, :]
-        logits_j = logits[:, j, :]  
 
-        pi_i = F.log_softmax(logits_i, dim=-1)
-        pi_j = F.softmax(logits_j, dim=-1)
-        kl_ij = F.kl_div(pi_i, pi_j, reduction="batchmean", log_target=False)
+    with torch.no_grad():
+        # Get the output of all agents given the same observations
+        output_policy = policy(same_obs_all_agents)[0]
+        # Get only the logits tensor
+        logits_tensor = output_policy[0]  
+        
+        # Compute pairwise symmetric KL
+        for i, j in combinations(range(n_agents), 2):
+            logits_i = logits_tensor[:, i, :]
+            logits_j = logits_tensor[:, j, :]
 
-        pi_j_log = F.log_softmax(logits_j, dim=-1)
-        pi_i_prob = F.softmax(logits_i, dim=-1)
-        kl_ji = F.kl_div(pi_j_log, pi_i_prob, reduction="batchmean", log_target=False)
+            log_probs_i = F.log_softmax(logits_i, dim=-1)
+            log_probs_j = F.log_softmax(logits_j, dim=-1)
+            probs_i = log_probs_i.exp()
+            probs_j = log_probs_j.exp()
 
-        symmetric_kl = kl_ij + kl_ji
-        distances[f"KL_agent_{i}_{j}"] = symmetric_kl.item()
+            kl_ij = F.kl_div(log_probs_i, probs_j, reduction="batchmean", log_target=False)
+            kl_ji = F.kl_div(log_probs_j, probs_i, reduction="batchmean", log_target=False)
+            symmetric_kl = 0.5 * (kl_ij + kl_ji)
+            distances[f"diversity/KL_agent_{i}_{j}"] = symmetric_kl.item()
 
     return distances
 

@@ -31,7 +31,7 @@ class Train:
     def train(self):
         # Initialize progress bar
         print("Starting training...")
-        pbar = tqdm(total=self.args.n_iters, desc="episode_reward_mean = 0")
+        pbar = tqdm(total=self.args.n_iters - 1, desc="episode_reward_mean = 0")
         self.global_step = 0
         next_record_step = self.args.record_steps  
         # Initialize collector iterator
@@ -46,7 +46,6 @@ class Train:
             tensordict_data = next(collector_iter)
             if torch.backends.cuda.is_built() and torch.cuda.is_available(): torch.cuda.synchronize()
             collector_time = time.time() - collector_start 
-            print(f"[DEBUG] Collector time: {collector_time:.3f}s")
             tensordict_data = tensordict_data.to(self.args.device)
             steps_in_batch = self.args.env_steps_per_batch
             self.global_step += steps_in_batch
@@ -214,7 +213,7 @@ class Train:
             sync_time = time.time() - sync_start
 
             total_iteration_time = time.time() - t0
-            print(f"Iteration {i+1}/{self.args.n_iters} took {total_iteration_time:.3f}s (collector: {collector_time:.3f}s, GAE: {gae_time:.3f}s, buffer: {buffer_time:.3f}s, optimization: {opt_time:.3f}s, sync: {sync_time:.3f}s)")
+            print(f"Iteration {i+1}/{self.args.n_iters - 1} took {total_iteration_time:.3f}s (collector: {collector_time:.3f}s, GAE: {gae_time:.3f}s, buffer: {buffer_time:.3f}s, optimization: {opt_time:.3f}s, sync: {sync_time:.3f}s)")
             # Record videos and upload to wandb
             if self.global_step >= next_record_step:
                 print(f"Recording video at global step {self.global_step}")

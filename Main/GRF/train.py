@@ -29,7 +29,6 @@ class Train:
         # Initialize progress bar
         print("Starting training...")
         pbar = tqdm(total=self.args.n_iters - 1, desc="episode_reward_mean = 0")
-        self.global_step = 0
         next_record_step = self.args.record_steps  
         # Initialize collector iterator
         collector_iter = iter(self.collector)
@@ -43,7 +42,6 @@ class Train:
             tensordict_data = next(collector_iter)
             if torch.backends.cuda.is_built() and torch.cuda.is_available(): torch.cuda.synchronize()
             collector_time = time.time() - collector_start 
-            print(f"[DEBUG] Collector time: {collector_time:.3f}s")
             tensordict_data = tensordict_data.to(self.args.device)
             steps_in_batch = self.args.env_steps_per_batch
 
@@ -65,10 +63,12 @@ class Train:
                             continue
             
             # add intrinsic reward to push diversity
-            tensordict_data = self.sipo.compute_intrinsic_reward(tensordict_data)
+            sipo_time = time.time()
+            tensordict_data = self.sipo.compute_intrinsic_reward(tensordict_data, self.global_step)
 
             # Store sampled states in the archive trajectories
             self.sipo.store_archive(tensordict_data)
+            sipo_time = time.time() - sipo_time
 
             # We need to expand the done and terminated to match the reward shape (this is expected by the value estimator)
             tensordict_data.set(
@@ -104,7 +104,7 @@ class Train:
             buffer_time = time.time() - buffer_start
 
             # Logging diversity metrics
-            get_diversity_metrics = compute_behavioral_diversity(tensordict_data, self.args.n_agents)
+            get_diversity_metrics = compute_behavioral_diversity(tensordict_data, self.policy, self.args.n_agents)
             diversity_metrics = {f"diversity/{k}": v for k, v in get_diversity_metrics.items()}
             log_metrics(diversity_metrics, step=self.global_step, use_wandb=self.args.track)
             print("before_optimization")
@@ -150,7 +150,7 @@ class Train:
             sync_time = time.time() - sync_start
 
             total_iteration_time = time.time() - t0
-            print(f"Iteration {i+1}/{self.args.n_iters} took {total_iteration_time:.3f}s (collector: {collector_time:.3f}s, GAE: {gae_time:.3f}s, buffer: {buffer_time:.3f}s, optimization: {opt_time:.3f}s, sync: {sync_time:.3f}s)")
+            print(f"Iteration {i+1}/{self.args.n_iters - 1} took {total_iteration_time:.3f}s (collector: {collector_time:.3f}s, SIPO: {sipo_time:.3f}s, GAE: {gae_time:.3f}s, buffer: {buffer_time:.3f}s, optimization: {opt_time:.3f}s, sync: {sync_time:.3f}s)")
             # Record videos and upload to wandb
             if self.global_step >= next_record_step:
                 print(f"Recording video at global step {self.global_step}")
@@ -162,6 +162,7 @@ class Train:
             time_metrics = {
                 "timing/total_iteration_time": total_iteration_time,
                 "timing/collector_time": collector_time,
+                "timing/sipo_time": sipo_time,
                 "timing/gae_time": gae_time,
                 "timing/buffer_time": buffer_time,
                 "timing/optimization_time": opt_time,
