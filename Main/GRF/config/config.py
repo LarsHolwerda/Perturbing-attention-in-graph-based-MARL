@@ -13,13 +13,13 @@ def parse_training_args():
     parser.add_argument(
         "--exp-name", 
         type=str, 
-        default="PGAPPO",
+        default="PIGAPPO",
         help="the name of this experiment")
     
     parser.add_argument(
         "--algorithm", 
         type=str, 
-        default="PGAPPO",
+        default="PIGAPPO",
         help="the algorithm which will be trained")
     
     parser.add_argument(
@@ -149,7 +149,7 @@ def parse_training_args():
     parser.add_argument(
         "--shared-backbone", 
         type=lambda x: bool(strtobool(x)),
-        default=True,
+        default=False,
         help="Whether to use a shared backbone for actor and critic in GAPPO"
     )
 
@@ -202,7 +202,7 @@ def parse_training_args():
     parser.add_argument(
         "--record-steps",
         type=int,
-        default=50000,
+        default=1000,
         help="Number of steps between video recordings"
     )
 
@@ -262,7 +262,6 @@ def parse_training_args():
 
     # Computed fields
     args.total_env_steps = args.env_steps_per_batch * args.n_iters
-    args.num_grf_envs = args.env_steps_per_batch // args.max_steps
     args.device = torch.device(0) if (args.use_cuda and not is_fork) else torch.device("cpu")
     print(args.device)
     return args

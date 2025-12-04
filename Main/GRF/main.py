@@ -62,6 +62,7 @@ if __name__ == "__main__":
     # Initialize SIPO
     sipo_init = SIPO_WD(args)
     persistent_global_step = 0
+    persistent_next_record_step = args.record_steps
     # Policy iterations loop
     for policy_iteration in range(args.policy_iterations):
         print(f"Policy iteration {policy_iteration + 1} / {args.policy_iterations}")
@@ -83,6 +84,7 @@ if __name__ == "__main__":
 
         # Restore persisted global step into the trainer
         trainer_algorithm.global_step = persistent_global_step
+        trainer_algorithm.next_record_step = persistent_next_record_step
 
         # Initialize SIPO for new iteration
         sipo_init.start_new_iteration()
@@ -96,7 +98,8 @@ if __name__ == "__main__":
 
         # Persist updated global step for the next iteration
         persistent_global_step = trainer_algorithm.global_step
-
+        persistent_next_record_step = trainer_algorithm.next_record_step
+        
         # Save the concatenated trajectories into SIPO’s archive
         sipo_init.save_archive(sipo_init.collected_trajectories)
 

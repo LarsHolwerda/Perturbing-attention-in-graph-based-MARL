@@ -44,12 +44,18 @@ def log_metrics(metrics, step, use_wandb):
         wandb.log(metrics, step=step)
         
 
-def record_video(env, policy, device, num_episodes=1):
+def record_video(env, algorithm, policy, n_agents, device, video_path="traces/video.mp4", num_episodes=1):
     for i in range(num_episodes):
         # Create render env
         render_env = create_render_env()
         # Reset the environment and get initial observations
         obs, info = render_env.reset()
+        if algorithm in ["IGAPPO", "PIGAPPO"]:
+            actor_head = policy.module[0].module  # TensorDictModule -> ActorHead
+            base_models = getattr(actor_head, "base_models", [actor_head.base_model])  
+            init_gappos = list(base_models[0])  # list of Init_GAPPO
+            agent_att_frames = [[] for _ in range(len(init_gappos))]  # one list per agent
+        att_frames = []
         done = False
 
         # Loop through the environment until done
@@ -62,16 +68,44 @@ def record_video(env, policy, device, num_episodes=1):
                 batch_size=[3],
                 device=device,
             )
-            # Get actions from the policy
+            
             with torch.no_grad():
-                action_tensordict = policy(obs_tensordict)
+                action_tensordict = policy(obs_tensordict) # Get actions from the policy
+
+                # To capture attention we need to access last_att_weights from GAT
+                if algorithm in ["GAPPO", "PGAPPO"]:
+                    actor_head = policy.module[0].module # TensorDictModule -> ActorHead
+                    base_model = actor_head.base_model # Init_GAPPO
+                    edge_index, att_values = base_model.gat.last_att_weights # access the last attention weights from the GAT in the base model
+                    att_frame = att_to_frame(edge_index, att_values, n_agents=n_agents) # convert attention weights to frames
+                    att_frames.append(att_frame) 
+
+                if algorithm in ["IGAPPO", "PIGAPPO"]:
+                    for agent, init_gappo in enumerate(init_gappos):
+                        edge_index, att_values = init_gappo.gat.last_att_weights
+                        att_frame = att_to_frame(edge_index, att_values, n_agents=n_agents)
+                        agent_att_frames[agent].append(att_frame)
+
+
             actions = action_tensordict[env.action_key].cpu().numpy()
             actions_list = actions.tolist()
             # Step environment with actions list
             obs, reward, terminated, truncated, info = render_env.step(actions_list)
             done = terminated or truncated        
 
-    render_env.close()    
+    render_env.close()   
+
+    
+    if algorithm in ["GAPPO", "PGAPPO"]:
+        att_path = video_path.replace(".mp4", "_att.mp4")
+        imageio.mimwrite(att_path, att_frames, fps=10)
+        print(f"Attention video saved to {att_path}")
+    # Save attention video if IGAPPO
+    if algorithm in ["IGAPPO", "PIGAPPO"]:
+        for agent, frames_list in enumerate(agent_att_frames):
+            att_path = video_path.replace(".mp4", f"_att_{agent}.mp4")
+            imageio.mimwrite(att_path, frames_list, fps=10)
+            print(f"Video saved to {att_path}") 
 
 def convert_avi_to_mp4(avi_path, output_name=None):
     mp4_path = os.path.join(os.path.dirname(avi_path), output_name + ".mp4")    
@@ -81,19 +115,32 @@ def convert_avi_to_mp4(avi_path, output_name=None):
     return mp4_path
 
 def upload_videos_to_wandb(video_dir="./traces", scenario=None, algorithm=None, step=0):
-    video_paths = glob.glob(f"{video_dir}/*.avi")
-    output_name = f"{scenario}__{algorithm}__step_{step}"
-    for avi_path in video_paths:
+    avi_video_paths = glob.glob(f"{video_dir}/*.avi")
+    output_name = f"{scenario}__{algorithm}"
+    for avi_path in avi_video_paths:
         try:
             # Convert AVI to MP4
             mp4_path = convert_avi_to_mp4(avi_path, output_name)
             # Upload video to wandb
-            wandb.log({f"video_{os.path.basename(mp4_path)}": wandb.Video(mp4_path, fps=30, format="mp4")}, step=step)
+            wandb.log({f"video_{os.path.basename(mp4_path)}": wandb.Video(mp4_path, fps=10, format="mp4")}, step=step)
             # delete the video after uploading
             os.remove(mp4_path)  
             os.remove(avi_path)
             dump_path = avi_path.replace(".avi", ".dump")                
             os.remove(dump_path)
+
+        except Exception as e:
+            print(f"Failed to upload or delete {mp4_path}: {e}")
+
+    mp4_video_paths = glob.glob(f"{video_dir}/*.mp4")
+    for mp4_path in mp4_video_paths:
+        try:
+            wandb.log(
+                {f"{output_name}__{os.path.basename(mp4_path)}": wandb.Video(mp4_path, fps=10, format="mp4")},
+                step=step,
+            )
+            # Delete after upload
+            os.remove(mp4_path)
 
         except Exception as e:
             print(f"Failed to upload or delete {mp4_path}: {e}")
@@ -145,51 +192,18 @@ def coo_to_dense_weights(edge_index, att_weights, n_agents):
         dense_weights[src, dst] = att_values[idx] # fill in the attention value for each transposed edge
     return dense_weights
 
-def coo_to_dense_weights_batched(edge_index, att_values, node_batch, n_agents, num_envs):
-    att_values = att_values.mean(-1)  # average over heads
-    src, dst = edge_index # Source and destination nodes of edges
-
-    env_node_counts = torch.bincount(node_batch) # Number of nodes per env
-    nodes_per_env = env_node_counts.view(num_envs, -1).sum(dim=1)  # Total nodes per env
-    steps_per_env = (nodes_per_env // n_agents).tolist()  # Steps per env
-
-    # Determine max steps for padding
-    max_steps = max(steps_per_env) 
-
-    dense_rollout = torch.zeros(num_envs, max_steps, n_agents, n_agents, device=att_values.device) # Create tensor with shape: (num_envs, max_steps, n_agents, n_agents)
-
-    start_idx = 0 # Where does this environment's nodes start in the global indexing
-    # Per environment
-    for env_idx in range(num_envs):
-        n_steps = steps_per_env[env_idx]
-        # Steps in this environment
-        for step in range(n_steps):
-            node_start = start_idx + step * n_agents # Start node index for this step
-            node_end = node_start + n_agents # End node index for this step
-            mask = (src >= node_start) & (src < node_end) # Mask for edges for nodes in this step
-            
-            # Create local indexing for nodes in this step
-            src_t = src[mask] - node_start
-            dst_t = dst[mask] - node_start 
-            att_t = att_values[mask] # Attention values for edges of relevant nodes in this step
-
-            dense_rollout[env_idx, step, src_t, dst_t] = att_t # Fill in the dense matrix for this step
-        start_idx += n_steps * n_agents # Start index for next step
-
-    return dense_rollout 
-
 # Convert attention weights to a rgb image of the adversary × adversary attention matrix
-def att_to_frame(edge_index, att_values, n_agents, n_adv):
+def att_to_frame(edge_index, att_values, n_agents):
     dense_att = coo_to_dense_weights(edge_index, att_values, n_agents)
 
     # we need only a adversary × adversary matrix
-    adv_dense_att = dense_att[:n_adv, :n_adv]
+    adv_dense_att = dense_att[:n_agents, :n_agents]
 
     fig, ax = plt.subplots()
     im = ax.imshow(adv_dense_att, cmap="viridis", vmin=0, vmax=1)
     # Add text annotations
-    for i in range(n_adv):
-        for j in range(n_adv):
+    for i in range(n_agents):
+        for j in range(n_agents):
             value = adv_dense_att[i, j]
             ax.text(
                 j, i, f"{value:.2f}",
@@ -198,13 +212,13 @@ def att_to_frame(edge_index, att_values, n_agents, n_adv):
             )
 
     # Axis labels
-    ax.set_xticks(np.arange(n_adv))
-    ax.set_yticks(np.arange(n_adv))
-    ax.set_xticklabels([f"adversary_{i}" for i in range(n_adv)])
-    ax.set_yticklabels([f"adversary_{i}" for i in range(n_adv)])
-    ax.set_xlabel("From adversary")
-    ax.set_ylabel("To adversary")
-    ax.set_title("Importance of adversary's communicated observation")
+    ax.set_xticks(np.arange(n_agents))
+    ax.set_yticks(np.arange(n_agents))
+    ax.set_xticklabels([f"player_{i + 1}" for i in range(n_agents)])
+    ax.set_yticklabels([f"player_{i + 1}" for i in range(n_agents)])
+    ax.set_xlabel("From player")
+    ax.set_ylabel("To player")
+    ax.set_title("How much attention each player gives to other players")
 
     plt.tight_layout()
     plt.close(fig)

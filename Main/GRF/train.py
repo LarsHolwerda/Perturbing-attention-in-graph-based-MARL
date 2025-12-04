@@ -1,7 +1,7 @@
 import torch
 from tensordict.nn import TensorDictModule
 import sipo
-from utils import coo_to_dense_weights_batched, log_metrics, record_video, upload_videos_to_wandb, compute_behavioral_diversity
+from utils import log_metrics, record_video, upload_videos_to_wandb, compute_behavioral_diversity
 import time
 from tqdm import tqdm
 import time
@@ -16,6 +16,7 @@ class Train:
         self.losses = losses
         self.optimizers = optimizers
         self.global_step = 0
+        self.next_record_step = args.record_steps
         self.perturb_attention_logits = False
         
 
@@ -23,7 +24,6 @@ class Train:
         # Initialize progress bar
         print("Starting training...")
         pbar = tqdm(total=self.args.n_iters - 1, desc="episode_reward_mean = 0")
-        next_record_step = self.args.record_steps  
         # Initialize collector iterator
         collector_iter = iter(self.collector)
         print("Initialized collector iterator")
@@ -146,11 +146,11 @@ class Train:
             total_iteration_time = time.time() - t0
             print(f"Iteration {i+1}/{self.args.n_iters - 1} took {total_iteration_time:.3f}s (collector: {collector_time:.3f}s, SIPO: {sipo_time:.3f}s, GAE: {gae_time:.3f}s, buffer: {buffer_time:.3f}s, optimization: {opt_time:.3f}s, sync: {sync_time:.3f}s)")
             # Record videos and upload to wandb
-            if self.global_step >= next_record_step:
+            if self.global_step >= self.next_record_step:
                 print(f"Recording video at global step {self.global_step}")
-                record_video(self.env, self.policy, self.device, num_episodes=self.args.num_episodes_to_record)
+                record_video(self.env, self.args.exp_name, self.policy, self.args.n_agents, self.args.device, num_episodes=self.args.num_episodes_to_record)
                 upload_videos_to_wandb(scenario=self.args.env_id, algorithm=self.args.exp_name, step=self.global_step)
-                next_record_step += self.args.record_steps
+                self.next_record_step += self.args.record_steps
 
             # Time and reward logging per iteration to wandb
             time_metrics = {

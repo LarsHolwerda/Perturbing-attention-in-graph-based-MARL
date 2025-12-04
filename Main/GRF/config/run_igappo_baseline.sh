@@ -1,8 +1,8 @@
 #!/bin/bash
 
-#SBATCH --job-name=gappo_baseline
-#SBATCH --output=/scratch/7990537/Hierarchical-graph-based-MARL-for-strategic-and-diverse-coordination/Main/GRF/logs/gappo_baseline_%j.out
-#SBATCH --error=/scratch/7990537/Hierarchical-graph-based-MARL-for-strategic-and-diverse-coordination/Main/GRF/logs/gappo_baseline_%j.err
+#SBATCH --job-name=igappo_baseline
+#SBATCH --output=/scratch/7990537/Hierarchical-graph-based-MARL-for-strategic-and-diverse-coordination/Main/GRF/logs/igappo_baseline_%j.out
+#SBATCH --error=/scratch/7990537/Hierarchical-graph-based-MARL-for-strategic-and-diverse-coordination/Main/GRF/logs/igappo_baseline_%j.err
 #SBATCH --time=10-00:00:00
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
@@ -16,8 +16,8 @@ echo "Starting job on $(hostname) at $(date)"
 
 cd /scratch/7990537/Hierarchical-graph-based-MARL-for-strategic-and-diverse-coordination/Main/GRF
 
-/scratch/7990537/conda/envs/grf_env/bin/python main.py --exp-name "GAPPO" \
-               --algorithm "GAPPO" \
+/scratch/7990537/conda/envs/grf_env/bin/python main.py --exp-name "IGAPPO" \
+               --algorithm "IGAPPO" \
                --env-id "academy_3_vs_1_with_keeper" \
                --use-cuda True \
                --number-of-workers 16 \
@@ -33,7 +33,7 @@ cd /scratch/7990537/Hierarchical-graph-based-MARL-for-strategic-and-diverse-coor
                --max-grad-norm 5.0 \
                --mappo False \
                --clip-epsilon 0.2 \
-               --shared-backbone True \
+               --shared-backbone False \
                --gamma 0.99 \
                --lmbda 0.95 \
                --entropy-eps 0.0 \

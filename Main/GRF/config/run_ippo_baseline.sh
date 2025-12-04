@@ -3,11 +3,11 @@
 #SBATCH --job-name=ippo_baseline
 #SBATCH --output=/scratch/7990537/Hierarchical-graph-based-MARL-for-strategic-and-diverse-coordination/Main/GRF/logs/ippo_baseline_%j.out
 #SBATCH --error=/scratch/7990537/Hierarchical-graph-based-MARL-for-strategic-and-diverse-coordination/Main/GRF/logs/ippo_baseline_%j.err
-#SBATCH --time=24:00:00
+#SBATCH --time=10-00:00:00
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
-#SBATCH --cpus-per-task=8
-#SBATCH --mem=8GB
+#SBATCH --cpus-per-task=16
+#SBATCH --mem=16GB
 #SBATCH --gres=gpu:1
 
 echo "Starting job on $(hostname) at $(date)"
