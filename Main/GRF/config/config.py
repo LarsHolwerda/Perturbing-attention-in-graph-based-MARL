@@ -13,13 +13,13 @@ def parse_training_args():
     parser.add_argument(
         "--exp-name", 
         type=str, 
-        default="IPPO",
+        default="PGAPPO",
         help="the name of this experiment")
     
     parser.add_argument(
         "--algorithm", 
         type=str, 
-        default="IPPO",
+        default="PGAPPO",
         help="the algorithm which will be trained")
     
     parser.add_argument(
@@ -32,7 +32,7 @@ def parse_training_args():
     parser.add_argument(
         "--use-cuda",
         type=lambda x: bool(strtobool(x)),
-        default="False",
+        default="True",
         help="Whether to use cuda"
     )
     
@@ -116,7 +116,7 @@ def parse_training_args():
     parser.add_argument(
         "--mappo",
         type=lambda x: bool(strtobool(x)),
-        default="False",
+        default="True",
         help="Whether to share parameters across agents (MAPPO) or not (IPPO)"
     )
 
@@ -141,7 +141,7 @@ def parse_training_args():
     parser.add_argument(
         "--entropy-eps",
         type=float,
-        default=0.01,
+        default=0.0,
         help="Entropy coefficient in PPO loss"
     )
 
@@ -149,7 +149,7 @@ def parse_training_args():
     parser.add_argument(
         "--shared-backbone", 
         type=lambda x: bool(strtobool(x)),
-        default=False,
+        default=True,
         help="Whether to use a shared backbone for actor and critic in GAPPO"
     )
 
@@ -190,13 +190,7 @@ def parse_training_args():
     )
 
 
-    # Episode / Env
-    parser.add_argument(
-        "--max-steps",
-        type=int,
-        default=400,
-        help="Max episode steps before done"
-    )
+    # Env
     parser.add_argument(
         "--n-agents",
         type=int,
@@ -208,7 +202,7 @@ def parse_training_args():
     parser.add_argument(
         "--record-steps",
         type=int,
-        default=5000,
+        default=50000,
         help="Number of steps between video recordings"
     )
 

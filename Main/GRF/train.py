@@ -17,13 +17,7 @@ class Train:
         self.optimizers = optimizers
         self.global_step = 0
         self.perturb_attention_logits = False
-        if self.args.algorithm in ["GAPPO", "IGAPPO", "PGAPPO", "PIGAPPO"]:
-            self.analysis_data = {
-                "observations": [],
-                "adjacency": [],
-                "actions": [],
-                "done": [],
-            }
+        
 
     def train(self):
         # Initialize progress bar
@@ -48,7 +42,7 @@ class Train:
             self.global_step += steps_in_batch
             # Update global step in the backbone(s) for attention perturbation scheduling
             if self.args.algorithm in ["GAPPO", "IGAPPO", "PGAPPO", "PIGAPPO"]:
-                for policy in self.policies.items():
+                for policy_name, policy in self.policies.items():
                     policy_module = policy.module  # ModuleList
                     for module in policy_module:  # TensorDictModule
                         if isinstance(module, TensorDictModule):

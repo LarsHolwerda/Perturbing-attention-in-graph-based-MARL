@@ -62,7 +62,7 @@ class SIPO_WD:
             iter_idx = len(self.archive) - 1 # Use the most recent archive for critic update
             idx = np.random.randint(0, len(self.archive[iter_idx]))
             archived_obs = self.archive[iter_idx][idx] 
-            archived_obs_flat = archived_obs.reshape(-1, O)
+            archived_obs_flat = archived_obs.reshape(-1, O).to(self.args.device)
             
             current_batch_scores = self.current_wd(flat_obs) # output of critic for current states
             archived_scores = self.current_wd(archived_obs_flat) # output of critic for archived states

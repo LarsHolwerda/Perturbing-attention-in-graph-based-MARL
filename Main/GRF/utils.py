@@ -108,9 +108,12 @@ def compute_behavioral_diversity(tensordict_data, policy, n_agents):
 
     with torch.no_grad():
         # Get the output of all agents given the same observations
-        output_policy = policy(same_obs_all_agents)[0]
+        output_policy = policy[0](same_obs_all_agents)
         # Get only the logits tensor
-        logits_tensor = output_policy[0]  
+        if output_policy.ndim == 4:
+            logits_tensor = output_policy[0]
+        else:
+            logits_tensor = output_policy  
         
         # Compute pairwise symmetric KL
         for i, j in combinations(range(n_agents), 2):
