@@ -61,7 +61,7 @@ class Train:
             tensordict_data = self.sipo.compute_intrinsic_reward(tensordict_data, self.global_step)
 
             # Store sampled states in the archive trajectories
-            self.sipo.store_archive(tensordict_data)
+            self.sipo.store_archive(self.args, i, tensordict_data)
             sipo_time = time.time() - sipo_time
 
             # We need to expand the done and terminated to match the reward shape (this is expected by the value estimator)

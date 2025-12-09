@@ -28,6 +28,9 @@ class SIPO_WD:
         # List of tensors of each iteration, each tensor is [num_states, obs_dim]
         self.archive = [] 
         self.collected_trajectories = []
+        # Counter to select which trajectories will be stored
+        self.archive_counter = 0
+
         # Current iterations WD critic and optimizer
         self.current_wd = None
         self.current_wd_opt = None
@@ -60,12 +63,14 @@ class SIPO_WD:
         if len(self.archive) > 0:
             # Sample a block from the archive
             iter_idx = len(self.archive) - 1 # Use the most recent archive for critic update
-            idx = np.random.randint(0, len(self.archive[iter_idx]))
-            archived_obs = self.archive[iter_idx][idx] 
+            idxs = np.random.randint(0, len(self.archive[iter_idx]), self.args.number_of_workers)
+            archived_obs = torch.stack([self.archive[iter_idx][i] for i in idxs])  
             archived_obs_flat = archived_obs.reshape(-1, O).to(self.args.device)
             
             current_batch_scores = self.current_wd(flat_obs) # output of critic for current states
+            flat_obs = flat_obs.detach()          
             archived_scores = self.current_wd(archived_obs_flat) # output of critic for archived states
+            archived_scores = archived_scores.detach()
 
             wd_loss = -(current_batch_scores.mean() - archived_scores.mean()) # Wasserstein loss
 
@@ -78,7 +83,12 @@ class SIPO_WD:
         int_r_total = torch.zeros((E, B, N), device=self.args.device)
 
         # For each previous critic, compute intrinsic reward
-        for j, (lambda_j, critic_j, archive_j) in enumerate(zip(self.lambdas, self.wd_critics, self.archive)):
+        for j, (lambda_j, critic_state_dict, archive_j) in enumerate(zip(self.lambdas, self.wd_critics, self.archive)):
+            # reconstruct critic from saved state_dict 
+            critic_j = WD_Critic(self.args.obs_dim).to(self.args.device)
+            critic_j.load_state_dict(critic_state_dict)
+            critic_j.eval()
+            
             # Sample a block of length B from the previous archive
             idx = np.random.randint(0, len(archive_j))
             previous_archived_obs = archive_j[idx].to(self.args.device)   
@@ -108,6 +118,10 @@ class SIPO_WD:
                 f"sipo/critic_{j}/lambda_value": lambda_value,
             }, step=global_step, use_wandb=self.args.track)
 
+            # Cleanup
+            del critic_j, previous_archived_obs, previous_archived_obs_flat
+            torch.cuda.empty_cache()
+
         int_r = int_r_total.unsqueeze(-1).detach()  # [num_envs, B, N, 1] 
 
         # Logging overall metrics
@@ -121,13 +135,24 @@ class SIPO_WD:
         env_reward = tensordict_data.get(("next", "player", "reward"))  
         new_reward = env_reward + self.alpha * int_r
         tensordict_data.set(("next", "player", "reward"), new_reward)
-
+        
+        # Clean up to free memory
+        del flat_obs
+        torch.cuda.empty_cache()
         return tensordict_data
 
     # Store sampled states from current batch into collected_trajectories
-    def store_archive(self, tensordict_data):
-        obs = tensordict_data.get(("player", "observation")).detach().cpu()
-        self.collected_trajectories.append(obs.clone())
+    def store_archive(self, args, cur_iteration, tensordict_data):
+        # Decide which environments to store trajectories from
+        if args.n_iters - cur_iteration < 5:
+            envs_to_store = list(range(args.number_of_workers)) # The last 5 iterations are from the converged policy, store all
+        else:      
+            envs_to_store = [0] # Only store trajectories from the first environment to avoid overfilling the archive
+
+        for worker_env in envs_to_store:
+            self.collected_trajectories.append(tensordict_data.get(("player", "observation"))[worker_env].detach().cpu().clone())
+
+
         
 
     # Save trajectories from the current iteration
@@ -138,4 +163,4 @@ class SIPO_WD:
             self.archive.append(traj_copy)
 
             # Save the critic of this iteration
-            self.wd_critics.append(copy.deepcopy(self.current_wd).eval())
+            self.wd_critics.append(copy.deepcopy(self.current_wd.state_dict()))

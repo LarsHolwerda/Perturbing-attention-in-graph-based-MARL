@@ -215,7 +215,7 @@ class GATLayer(nn.Module):
         if self.algorithm in ["PGAPPO", "PIGAPPO"] and global_step >= args.perturb_attention_start_step:
             cycle_step = (global_step - args.perturb_attention_start_step) % \
                          (args.normal_training_period + args.perturbation_period)
-            if cycle_step >= args.normal_training_period:
+            if cycle_step < args.perturbation_period:
                 use_perturbation = True
         
         # Set noise scale dynamically
@@ -564,6 +564,7 @@ class GAPPO(Train):
             storing_device=args.device,
             frames_per_batch =args.env_steps_per_batch,
             total_frames=args.total_env_steps,
+            reset_when_done=True,
         )
 
         self.replay_buffer = ReplayBuffer(

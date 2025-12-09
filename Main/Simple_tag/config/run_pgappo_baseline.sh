@@ -6,8 +6,8 @@
 #SBATCH --time=24:00:00
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
-#SBATCH --cpus-per-task=12
-#SBATCH --mem=16G
+#SBATCH --cpus-per-task=8
+#SBATCH --mem=8G
 #SBATCH --gres=gpu:1
 
 echo "Starting job on $(hostname) at $(date)"
@@ -20,7 +20,7 @@ cd /scratch/7990537/Hierarchical-graph-based-MARL-for-strategic-and-diverse-coor
                --algorithm "PGAPPO" \
                --env-id "simple_tag" \
                --use-cuda True \
-               --number-of-workers 12 \
+               --number-of-workers 8 \
                --seed 0 \
                --track True \
                --wandb-project-name "Simple Tag" \
@@ -33,11 +33,11 @@ cd /scratch/7990537/Hierarchical-graph-based-MARL-for-strategic-and-diverse-coor
                --max-grad-norm 5.0 \
                --clip-epsilon 0.2 \
                --shared-backbone True \
-               --noise-scale 0.3 \
-               --window-size 30 \
-               --perturb-attention-start-step 0 \
-               --normal-training-period 0 \
-               --perturbation-period 0 \
+               --noise-scale 0.8 \
+               --window-size 4000 \
+               --perturb-attention-start-step 3000000 \
+               --normal-training-period 820000 \
+               --perturbation-period 180000 \
                --gamma 0.99 \
                --lmbda 1.0 \
                --entropy-eps 0.1 \

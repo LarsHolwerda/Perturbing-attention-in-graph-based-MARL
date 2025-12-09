@@ -215,7 +215,7 @@ class GATLayer(nn.Module):
         if self.algorithm in ["PGAPPO", "PIGAPPO"] and global_step >= args.perturb_attention_start_step:
             cycle_step = (global_step - args.perturb_attention_start_step) % \
                          (args.normal_training_period + args.perturbation_period)
-            if cycle_step >= args.normal_training_period:
+            if cycle_step < args.normal_training_period:
                 use_perturbation = True
         
         # Set noise scale dynamically

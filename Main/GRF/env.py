@@ -5,9 +5,10 @@ from torchrl.envs import PettingZooWrapper
 
 # Env
 from torchrl.envs import RewardSum, TransformedEnv
-from torchrl.envs.transforms import DeviceCastTransform
 from torchrl.envs.utils import check_env_specs
 from torchrl.envs.transforms import Compose
+from torchrl.envs import StepCounter
+from torchrl.envs import CatTensors
 
 # Get command line arguments
 from config.config import parse_training_args  
@@ -27,16 +28,14 @@ def create_env(seed=None):
         raw_env.reset(seed=seed)
     env = PettingZooWrapper(raw_env, group_map=None)
 
-    env = TransformedEnv(
-        env,
-        Compose(
-            RewardSum(
-                in_keys=[("player", "reward")],
-                out_keys=[("player", "episode_reward")]
-            ),
-        )
+    transforms = Compose(
+        RewardSum(
+            in_keys=[("player", "reward")],
+            out_keys=[("player", "episode_reward")]
+        ),
+        StepCounter(max_steps=args.episode_length),
     )
-
+    env = TransformedEnv(env, transforms)
     check_env_specs(env) 
 
     return env

@@ -197,12 +197,18 @@ def parse_training_args():
         default=3,
         help="Number of agents in the environment"
     )
+    parser.add_argument(
+        "--episode-length",
+        type=int,
+        default=150,
+        help="Maximum length of an episode"
+    )
 
     # Recording
     parser.add_argument(
         "--record-steps",
         type=int,
-        default=1000,
+        default=1000000,
         help="Number of steps between video recordings"
     )
 
