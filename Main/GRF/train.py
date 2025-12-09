@@ -1,3 +1,4 @@
+import gc
 import torch
 from tensordict.nn import TensorDictModule
 import sipo
@@ -19,7 +20,7 @@ class Train:
         self.next_record_step = args.record_steps
         self.perturb_attention_logits = False
         
-
+   
     def train(self):
         # Initialize progress bar
         print("Starting training...")
@@ -63,6 +64,7 @@ class Train:
             # Store sampled states in the archive trajectories
             self.sipo.store_archive(self.args, i, tensordict_data)
             sipo_time = time.time() - sipo_time
+
 
             # We need to expand the done and terminated to match the reward shape (this is expected by the value estimator)
             tensordict_data.set(
