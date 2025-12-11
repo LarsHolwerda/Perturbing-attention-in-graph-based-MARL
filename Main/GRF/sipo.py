@@ -94,9 +94,6 @@ class SIPO_WD:
                 previous_archived_obs = archive_j[idx].to(self.args.device)   
                 previous_archived_obs_flat = previous_archived_obs.reshape(-1, O)
 
-                # Detach to avoid gradients 
-                flat_obs = flat_obs.detach()
-                previous_archived_obs_flat = previous_archived_obs_flat.detach()
                 # Compute critic scores for the current batch and archive mean score
                 critic_j = critic_j.to(self.args.device)
                 critic_scores = critic_j(flat_obs).reshape(E, B, N)
@@ -120,11 +117,9 @@ class SIPO_WD:
                     f"sipo/critic_{j}/intrinsic_reward": r_j_mean,
                     f"sipo/critic_{j}/lambda_update": lambda_update,
                     f"sipo/critic_{j}/lambda_value": lambda_value,
+                    f"sipo/critic_{j}/archive_mean": archive_mean,
                 }, step=global_step, use_wandb=self.args.track)
-                # Cleanup
-                critic_j = critic_j.cpu()
-                del critic_j, previous_archived_obs, previous_archived_obs_flat
-                torch.cuda.empty_cache()
+                
 
         int_r = int_r_total.unsqueeze(-1).detach()  # [num_envs, B, N, 1] 
 
