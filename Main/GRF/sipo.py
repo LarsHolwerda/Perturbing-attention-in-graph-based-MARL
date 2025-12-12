@@ -2,20 +2,8 @@ import torch
 import copy
 import numpy as np
 from utils import log_metrics
-import gc
+from w_discriminator import WassersteinDiscriminator
 
-class WD_Critic(torch.nn.Module):
-    def __init__(self, obs_dim, hidden=256):
-        super().__init__()
-        self.net = torch.nn.Sequential(
-            torch.nn.Linear(obs_dim, hidden),
-            torch.nn.ReLU(),
-            torch.nn.Linear(hidden, hidden),
-            torch.nn.ReLU(),
-            torch.nn.Linear(hidden, 1)
-        )
-    def forward(self, obs):
-        return self.net(obs)
 
 
 class SIPO_WD:
@@ -26,6 +14,7 @@ class SIPO_WD:
         self.lambda_lr = args.lambda_lr
         self.wd_lr = args.wd_lr
         self.lambda_max = args.lambda_max
+        self.opt_eps = args.opt_eps
         
         # List of tensors of each iteration, each tensor is [num_states, obs_dim]
         self.archive = [] 
@@ -48,33 +37,29 @@ class SIPO_WD:
         self.lambdas = [torch.zeros(1, device=self.args.device) for _ in self.archive]
 
         # Create a new WD critic for this iteration
-        self.current_wd = WD_Critic(self.args.obs_dim).to(self.args.device)
-        self.current_wd_opt = torch.optim.Adam(self.current_wd.parameters(), lr=self.wd_lr)
+        self.current_wd = WassersteinDiscriminator(
+            type_="frame_stack",
+            obs_dim=self.args.obs_dim,
+            act_dim=None,  
+            act_space=None,
+            hidden_dim=64
+        ).to(self.args.device)
+        self.current_wd_opt = torch.optim.RMSprop(self.current_wd.parameters(), lr=self.wd_lr, eps=self.opt_eps)
 
     # Compute intrinsic reward, update WD critic, and update lagrange multipliers
     def compute_intrinsic_reward(self, tensordict_data, global_step):
         # Get observations from current batch and reshape when necessary
         obs = tensordict_data.get(("player", "observation"))
-        print(f"obs shape: {obs.shape}")
-        if obs.ndim == 4:          
-            E, B, N, O = obs.shape
-            flat_obs = obs.reshape(E * B * N, O) # [num_envs * B * N, obs_dim]
-        elif obs.ndim == 3:        
-            B, N, O = obs.shape
-            flat_obs = obs.reshape(B * N, O)
-
+        E, B, N, O = obs.shape
         # Update Wasserstein critic using current batch + archived states
         if len(self.archive) > 0:
             # Sample a block from the archive
             iter_idx = len(self.archive) - 1 # Use the most recent archive for critic update
             idx = np.random.randint(0, len(self.archive[iter_idx]))
-            archived_obs = self.archive[iter_idx][idx] 
-            archived_obs_flat = archived_obs.reshape(-1, O).to(self.args.device)
+            archived_obs = self.archive[iter_idx][idx].to(self.args.device)
             
-            current_batch_scores = self.current_wd(flat_obs) # output of critic for current states
-            flat_obs = flat_obs.detach()          
-            archived_scores = self.current_wd(archived_obs_flat) # output of critic for archived states
-            archived_scores = archived_scores.detach()
+            current_batch_scores = self.current_wd(obs, None, None, None) # output of critic for current states
+            archived_scores = self.current_wd(archived_obs, None, None, None) # output of critic for archived states
 
             wd_loss = -(current_batch_scores.mean() - archived_scores.mean()) # Wasserstein loss
 
@@ -92,20 +77,22 @@ class SIPO_WD:
                 # Sample a block of length B from the previous archive
                 idx = np.random.randint(0, len(archive_j))
                 previous_archived_obs = archive_j[idx].to(self.args.device)   
-                previous_archived_obs_flat = previous_archived_obs.reshape(-1, O)
-
+                print("archive_j[idx].shape =", archive_j[idx].shape)
                 # Compute critic scores for the current batch and archive mean score
                 critic_j = critic_j.to(self.args.device)
-                critic_scores = critic_j(flat_obs).reshape(E, B, N)
-                archive_mean = critic_j(previous_archived_obs_flat).mean()
+                critic_scores = critic_j(obs, None, None, None)
+                print("critic_scores.mean() =", critic_scores.mean())
+                archive_mean = critic_j(previous_archived_obs, None, None, None).mean()
+                print("archive_mean =", archive_mean)
                 # Compute intrinsic reward per step according to the wasserstein critic
                 r_j = critic_scores - archive_mean
-
+                r_j = r_j.squeeze(-1)
                 # Compute (lagrange multiplier * intrinsic reward) for the actually added intrinsic reward
                 int_r_total += lambda_j * r_j
 
                 # Gradient ascent on λ_j
-                new_lambda = self.lambdas[j] + self.lambda_lr * (-r_j.mean() + self.delta)
+                R_j_int = (lambda_j * r_j).sum() 
+                new_lambda = self.lambdas[j] + self.lambda_lr * (-R_j_int + self.delta)
                 self.lambdas[j] = new_lambda.clamp(0.0, self.lambda_max)
 
                 # Logging
@@ -114,7 +101,7 @@ class SIPO_WD:
                 lambda_value = self.lambdas[j].item()
 
                 log_metrics({
-                    f"sipo/critic_{j}/intrinsic_reward": r_j_mean,
+                    f"sipo/critic_{j}/total_intrinsic_reward": R_j_int,
                     f"sipo/critic_{j}/lambda_update": lambda_update,
                     f"sipo/critic_{j}/lambda_value": lambda_value,
                     f"sipo/critic_{j}/archive_mean": archive_mean,
@@ -136,14 +123,14 @@ class SIPO_WD:
         tensordict_data.set(("next", "player", "reward"), new_reward)
         
         # Clean up to free memory
-        del flat_obs
+        del obs
         torch.cuda.empty_cache()
         return tensordict_data
 
     # Store sampled states from current batch into collected_trajectories
     def store_archive(self, args, cur_iteration, tensordict_data):
         # Decide which environments to store trajectories from
-        if args.n_iters - cur_iteration < 20:
+        if args.n_iters - cur_iteration < 30:
             self.collected_trajectories.append(tensordict_data.get(("player", "observation")).detach().cpu().clone())
 
 

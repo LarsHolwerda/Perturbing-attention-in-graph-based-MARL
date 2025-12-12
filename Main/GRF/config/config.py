@@ -251,6 +251,12 @@ def parse_training_args():
         help="Learning rate for Wasserstein critic"
     )
     parser.add_argument(
+        "--opt-eps",
+        type=float,
+        default=1e-5,
+        help="Epsilon for optimizer"
+    )
+    parser.add_argument(
         "--lambda-max",
         type=float,
         default=10.0,
