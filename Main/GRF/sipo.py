@@ -91,7 +91,7 @@ class SIPO_WD:
                 int_r_total += lambda_j * r_j
 
                 # Gradient ascent on λ_j
-                R_j_int = (lambda_j * r_j).sum() 
+                R_j_int = r_j.sum() 
                 new_lambda = self.lambdas[j] + self.lambda_lr * (-R_j_int + self.delta)
                 self.lambdas[j] = new_lambda.clamp(0.0, self.lambda_max)
 
