@@ -73,6 +73,9 @@ class SIPO_WD:
             self.current_wd_opt.zero_grad() # Reset gradients   
             wd_loss.backward()
             self.current_wd_opt.step()
+            with torch.no_grad():
+                for p in self.current_wd.parameters():
+                    p.clamp_(-0.01, 0.01)
         else:
             wd_loss = torch.tensor(0.0, device=self.args.device)
 
@@ -99,9 +102,12 @@ class SIPO_WD:
                 int_r_total += lambda_j * r_j
 
                 # Gradient ascent on λ_j
-                R_j_int = r_j.sum() 
-                new_lambda = self.lambdas[j] + self.lambda_lr * (-R_j_int + self.delta)
-                self.lambdas[j] = new_lambda.clamp(0.0, self.lambda_max)
+                R_j_int = r_j.mean() 
+                update_val = self.lambda_lr * (-R_j_int + self.delta)
+                print("R_j_int:", R_j_int.item(), "update_val:", update_val.item())
+                self.lambdas[j].add_(self.lambda_lr * (-R_j_int + self.delta))
+                self.lambdas[j].clamp_(0.0, self.lambda_max)
+                print(f"Updated lambda_{j}: {self.lambdas[j].item()}")
 
                 # Logging
                 r_j_mean = r_j.mean().item()
@@ -138,7 +144,7 @@ class SIPO_WD:
     # Store sampled states from current batch into collected_trajectories
     def store_archive(self, args, cur_iteration, tensordict_data):
         # Decide which environments to store trajectories from
-        if args.n_iters - cur_iteration < 30:
+        if args.n_iters - cur_iteration < 100:
             obs = tensordict_data.get(("player", "observation")).detach().cpu().clone()
             self.archive[-1].append(obs)
 
