@@ -101,10 +101,8 @@ if __name__ == "__main__":
         persistent_next_record_step = trainer_algorithm.next_record_step
         
         # Save the concatenated trajectories into SIPO’s archive
-        sipo_init.save_archive(sipo_init.collected_trajectories)
+        sipo_init.save_critic()
 
-        # Clear the list for the next iteration
-        sipo_init.collected_trajectories.clear()
     # Log results
     if args.track:
         wandb.finish()

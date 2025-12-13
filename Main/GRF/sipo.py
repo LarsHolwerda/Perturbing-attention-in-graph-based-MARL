@@ -44,7 +44,11 @@ class SIPO_WD:
             act_space=None,
             hidden_dim=64
         ).to(self.args.device)
+        # Create optimizer for the current WD critic
         self.current_wd_opt = torch.optim.RMSprop(self.current_wd.parameters(), lr=self.wd_lr, eps=self.opt_eps)
+
+        # Each policy iteration has their own archive list
+        self.archive.append([])  
 
     # Compute intrinsic reward, update WD critic, and update lagrange multipliers
     def compute_intrinsic_reward(self, tensordict_data, global_step):
@@ -52,9 +56,11 @@ class SIPO_WD:
         obs = tensordict_data.get(("player", "observation"))
         E, B, N, O = obs.shape
         # Update Wasserstein critic using current batch + archived states
-        if len(self.archive) > 0:
+        
+        
+        iter_idx = len(self.archive) - 1 # Use the most recent archive for critic update
+        if len(self.archive[iter_idx]) > 0:
             # Sample a block from the archive
-            iter_idx = len(self.archive) - 1 # Use the most recent archive for critic update
             idx = np.random.randint(0, len(self.archive[iter_idx]))
             archived_obs = self.archive[iter_idx][idx].to(self.args.device)
             
@@ -67,6 +73,8 @@ class SIPO_WD:
             self.current_wd_opt.zero_grad() # Reset gradients   
             wd_loss.backward()
             self.current_wd_opt.step()
+        else:
+            wd_loss = torch.tensor(0.0, device=self.args.device)
 
         # Compute intrinsic reward from all previous critics
         int_r_total = torch.zeros((E, B, N), device=self.args.device)
@@ -131,17 +139,11 @@ class SIPO_WD:
     def store_archive(self, args, cur_iteration, tensordict_data):
         # Decide which environments to store trajectories from
         if args.n_iters - cur_iteration < 30:
-            self.collected_trajectories.append(tensordict_data.get(("player", "observation")).detach().cpu().clone())
+            obs = tensordict_data.get(("player", "observation")).detach().cpu().clone()
+            self.archive[-1].append(obs)
 
-
-        
-
-    # Save trajectories from the current iteration
-    def save_archive(self, collected_trajectories):
-        # collected_trajectories: [T, obs_dim]
-        with torch.no_grad():
-            traj_copy = copy.deepcopy(collected_trajectories)
-            self.archive.append(traj_copy)
-
-            # Save the critic of this iteration
+    # Save critic from the current iteration
+    def save_critic(self):
+        # Save the critic of this iteration
+        if self.current_wd is not None:
             self.wd_critics.append(copy.deepcopy(self.current_wd).cpu().eval())
