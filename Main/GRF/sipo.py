@@ -56,7 +56,7 @@ class SIPO_WD:
         # Get observations from current batch and reshape when necessary
         obs = tensordict_data.get(("player", "observation"))
         # Get only the position and velocity of all attackers and the ball
-        obs = torch.cat([obs[..., 0:4], obs[..., 8:16], obs[..., 16:22]], dim=-1)
+        obs = torch.cat([obs[..., 0:4], obs[..., 18:30], obs[..., 38:44]], dim=-1)
         
         E, B, N, O = obs.shape
         # To incorporate temporal information, we stack the recent 4 global states to compute intrinsic rewards 
@@ -156,11 +156,11 @@ class SIPO_WD:
     # Store sampled states from current batch into collected_trajectories
     def store_archive(self, args, cur_iteration, tensordict_data):
         # Decide which environments to store trajectories from
-        if args.n_iters - cur_iteration < 100:
+        if args.n_iters - cur_iteration < 200:
             obs = tensordict_data.get(("player", "observation")).detach().cpu().clone()
             
             # Get only the position and velocity of all attackers and the ball
-            input_obs = torch.cat([obs[..., 0:4], obs[..., 8:16], obs[..., 16:22]], dim=-1)
+            input_obs = torch.cat([obs[..., 0:4], obs[..., 18:30], obs[..., 38:44]], dim=-1)
             E, B, N, O = input_obs.shape
             # Stack recent 4 global states
             stacked_obs = input_obs[:, :B - B % 4].view(E, -1, 4, N, O).permute(0, 1, 3, 2, 4).reshape(E, -1, N, O * 4)

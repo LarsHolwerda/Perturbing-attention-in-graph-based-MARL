@@ -265,7 +265,7 @@ def parse_training_args():
     parser.add_argument(
         "--obs-dim",
         type=int,
-        default=18,
+        default=22,
         help="Dimension of the observation space"
     )
 

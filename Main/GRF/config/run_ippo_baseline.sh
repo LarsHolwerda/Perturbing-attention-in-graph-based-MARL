@@ -40,6 +40,6 @@ cd /scratch/7990537/Hierarchical-graph-based-MARL-for-strategic-and-diverse-coor
                --record-steps 124750 \
                --num-episodes-to-record 1 \
                --policy-iterations 10 \
-               --obs-dim 58
+               --obs-dim 22
 
 echo "Job finished at $(date)"

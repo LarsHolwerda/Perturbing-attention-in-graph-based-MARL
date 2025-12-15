@@ -2,7 +2,7 @@ import gc
 import torch
 from tensordict.nn import TensorDictModule
 import sipo
-from utils import log_metrics, record_video, upload_videos_to_wandb, compute_behavioral_diversity
+from utils import log_metrics, record_video, upload_videos_to_wandb, compute_behavioral_diversity, get_passing_sequences
 import time
 from tqdm import tqdm
 import time
@@ -56,6 +56,11 @@ class Train:
                                     backbone.global_step = self.global_step
                         else:
                             continue
+            
+            
+            # Get passing sequences which lead up to a goal
+            passing_sequences = get_passing_sequences(tensordict_data)
+            print("passing_sequences:", passing_sequences)
             
             # add intrinsic reward to push diversity
             sipo_time = time.time()

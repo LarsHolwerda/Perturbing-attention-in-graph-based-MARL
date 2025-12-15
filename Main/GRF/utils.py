@@ -179,7 +179,48 @@ def compute_behavioral_diversity(tensordict_data, policy, n_agents):
 
     return distances
 
+def get_passing_sequences(tensordict_data):
+    obs = tensordict_data.get(("player", "observation"))
+    done = tensordict_data.get(("player", "done"))
+    truncated = tensordict_data.get(("player", "truncated"))
+    episode_rewards = tensordict_data.get(("player", "episode_reward"))
+    ball_ownership_agent = obs[:, :, 0, 44:47]   # One-hot encoding of which agent owns the ball
+    active_player_agent = obs[:, :, 0, 54:58]    # One-hot encoding of which agent is active
+    done_env = done.any(dim=-2) | truncated.any(dim=-2)  # Environment done signal
+    E, B, N, O = obs.shape
 
+    passing_sequences = []
+
+    for env in range(E):
+        current_sequence = []
+        previous_ball_owner = None
+        for step in range(B):
+            if done_env[env, step]:  # Reset at episode end and append sequence if successful
+                if episode_rewards[env, step] >= 3.0:
+                    passing_sequences.append(current_sequence)
+                current_sequence = []
+                previous_ball_owner = None
+                continue
+
+            if ball_ownership_agent[env, step, 1] == 1:  # left team in possession
+                agent_in_possession = active_player_agent[env, step].argmax().item()  # which agent
+            else:
+                agent_in_possession = None  # ignore right team or no possession
+            
+            if agent_in_possession is not None:
+                if previous_ball_owner is None:
+                    # First possession in the sequence
+                    previous_ball_owner = agent_in_possession
+                    current_sequence.append(agent_in_possession)
+                elif agent_in_possession != previous_ball_owner:
+                    # Ball changed possession 
+                    current_sequence.append(agent_in_possession)
+                    previous_ball_owner = agent_in_possession
+
+    return passing_sequences
+        
+
+            
 # Gappo
 def create_fully_connected_adj(n_agents, device):
     adj = torch.ones(n_agents, n_agents, device=device)
