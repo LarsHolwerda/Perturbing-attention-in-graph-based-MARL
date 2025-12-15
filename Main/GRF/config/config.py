@@ -229,13 +229,13 @@ def parse_training_args():
     parser.add_argument(
         "--alpha",
         type=float,
-        default=0.1,
+        default=1,
         help="Intrinsic reward scale"
     )
     parser.add_argument(
         "--delta",
         type=float,
-        default=0.002,
+        default=0.004,
         help="Minimal distance requirement"
     )
     parser.add_argument(
@@ -265,7 +265,7 @@ def parse_training_args():
     parser.add_argument(
         "--obs-dim",
         type=int,
-        default=58,
+        default=18,
         help="Dimension of the observation space"
     )
 

@@ -26,7 +26,7 @@ cd /scratch/7990537/Hierarchical-graph-based-MARL-for-strategic-and-diverse-coor
                --wandb-project-name "Google Research Football" \
                --wandb-entity "lars-holwerda-utrecht-university" \
                --env-steps-per-batch 9600 \
-               --n-iters 261 \
+               --n-iters 651 \
                --num-epochs 45 \
                --minibatch-size 3200 \
                --learning-rate 0.0005 \

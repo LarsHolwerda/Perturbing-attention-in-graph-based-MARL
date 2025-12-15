@@ -15,6 +15,7 @@ class SIPO_WD:
         self.wd_lr = args.wd_lr
         self.lambda_max = args.lambda_max
         self.opt_eps = args.opt_eps
+        self.frame_stack_size = 4
         
         # List of tensors of each iteration, each tensor is [num_states, obs_dim]
         self.archive = [] 
@@ -39,7 +40,7 @@ class SIPO_WD:
         # Create a new WD critic for this iteration
         self.current_wd = WassersteinDiscriminator(
             type_="frame_stack",
-            obs_dim=self.args.obs_dim,
+            obs_dim=self.args.obs_dim * self.frame_stack_size,
             act_dim=None,  
             act_space=None,
             hidden_dim=64
@@ -54,10 +55,16 @@ class SIPO_WD:
     def compute_intrinsic_reward(self, tensordict_data, global_step):
         # Get observations from current batch and reshape when necessary
         obs = tensordict_data.get(("player", "observation"))
+        # Get only the position and velocity of all attackers and the ball
+        obs = torch.cat([obs[..., 0:4], obs[..., 8:16], obs[..., 16:22]], dim=-1)
+        
         E, B, N, O = obs.shape
+        # To incorporate temporal information, we stack the recent 4 global states to compute intrinsic rewards 
+        obs = obs[:, :B - B % 4].view(E, -1, 4, N, O).permute(0, 1, 3, 2, 4).reshape(E, -1, N, O * 4)
+
+        print("obs.shape =", obs.shape)
+
         # Update Wasserstein critic using current batch + archived states
-        
-        
         iter_idx = len(self.archive) - 1 # Use the most recent archive for critic update
         if len(self.archive[iter_idx]) > 0:
             # Sample a block from the archive
@@ -89,20 +96,27 @@ class SIPO_WD:
                 idx = np.random.randint(0, len(archive_j))
                 previous_archived_obs = archive_j[idx].to(self.args.device)   
                 print("archive_j[idx].shape =", archive_j[idx].shape)
+
                 # Compute critic scores for the current batch and archive mean score
                 critic_j = critic_j.to(self.args.device)
                 critic_scores = critic_j(obs, None, None, None)
                 print("critic_scores.mean() =", critic_scores.mean())
                 archive_mean = critic_j(previous_archived_obs, None, None, None).mean()
                 print("archive_mean =", archive_mean)
+
                 # Compute intrinsic reward per step according to the wasserstein critic
-                r_j = critic_scores - archive_mean
+                r_j_stacked = critic_scores - archive_mean
+                # Repeat intrinsic reward for each frame in the stack
+                r_j = r_j_stacked.repeat_interleave(self.frame_stack_size, dim=1)
                 r_j = r_j.squeeze(-1)
+
+                # Normalize intrinsic reward
+                #r_j = (r_j - r_j.mean(dim=(0,1,2), keepdim=True)) / (r_j.std(dim=(0,1,2), keepdim=True) + 1e-8)
                 # Compute (lagrange multiplier * intrinsic reward) for the actually added intrinsic reward
                 int_r_total += lambda_j * r_j
 
                 # Gradient ascent on λ_j
-                R_j_int = r_j.mean() 
+                R_j_int = r_j_stacked.sum() 
                 update_val = self.lambda_lr * (-R_j_int + self.delta)
                 print("R_j_int:", R_j_int.item(), "update_val:", update_val.item())
                 self.lambdas[j].add_(self.lambda_lr * (-R_j_int + self.delta))
@@ -110,12 +124,11 @@ class SIPO_WD:
                 print(f"Updated lambda_{j}: {self.lambdas[j].item()}")
 
                 # Logging
-                r_j_mean = r_j.mean().item()
-                lambda_update = (-r_j_mean + self.delta)
+                lambda_update = (-R_j_int + self.delta)
                 lambda_value = self.lambdas[j].item()
 
                 log_metrics({
-                    f"sipo/critic_{j}/total_intrinsic_reward": R_j_int,
+                    f"sipo/critic_{j}/total_intrinsic_reward": R_j_int.item(),
                     f"sipo/critic_{j}/lambda_update": lambda_update,
                     f"sipo/critic_{j}/lambda_value": lambda_value,
                     f"sipo/critic_{j}/archive_mean": archive_mean,
@@ -126,7 +139,6 @@ class SIPO_WD:
 
         # Logging overall metrics
         log_metrics({
-            "sipo/intrinsic_reward_mean": int_r.mean().item(),
             "sipo/scaled_intrinsic_reward_mean": (self.alpha * int_r_total).mean().item(),
             "sipo/wd_loss": wd_loss.item() if len(self.archive) > 0 else 0.0,
         }, step=global_step, use_wandb=self.args.track)
@@ -146,7 +158,13 @@ class SIPO_WD:
         # Decide which environments to store trajectories from
         if args.n_iters - cur_iteration < 100:
             obs = tensordict_data.get(("player", "observation")).detach().cpu().clone()
-            self.archive[-1].append(obs)
+            
+            # Get only the position and velocity of all attackers and the ball
+            input_obs = torch.cat([obs[..., 0:4], obs[..., 8:16], obs[..., 16:22]], dim=-1)
+            E, B, N, O = input_obs.shape
+            # Stack recent 4 global states
+            stacked_obs = input_obs[:, :B - B % 4].view(E, -1, 4, N, O).permute(0, 1, 3, 2, 4).reshape(E, -1, N, O * 4)
+            self.archive[-1].append(stacked_obs)
 
     # Save critic from the current iteration
     def save_critic(self):
