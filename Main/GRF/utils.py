@@ -195,10 +195,8 @@ def get_passing_sequences(tensordict_data):
         previous_ball_owner = None
         for step in range(B):
             if done_env[env, step]:  # Reset at episode end and append sequence if successful
-                print("Episode reward:", episode_rewards[env, step])  
                 if episode_rewards[env, step] >= 3.0:
                     passing_sequences.append(current_sequence)
-                    print("Recorded passing sequence:", current_sequence)
                 current_sequence = []
                 previous_ball_owner = None
                 continue
