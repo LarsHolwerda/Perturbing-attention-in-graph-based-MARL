@@ -181,11 +181,10 @@ def compute_behavioral_diversity(tensordict_data, policy, n_agents):
 
 def get_passing_sequences(tensordict_data):
     obs = tensordict_data.get(("player", "observation"))
-    done = tensordict_data.get(("player", "done"))
-    truncated = tensordict_data.get(("player", "truncated"))
-    episode_rewards = tensordict_data.get(("player", "episode_reward"))
-    ball_ownership_agent = obs[:, :, 0, 44:47]   # One-hot encoding of which agent owns the ball
-    active_player_agent = obs[:, :, 0, 54:58]    # One-hot encoding of which agent is active
+    done = tensordict_data.get(("next", "player", "done"))
+    truncated = tensordict_data.get(("next", "player", "truncated"))
+    episode_rewards = tensordict_data.get(("next", "player", "episode_reward"))
+    episode_rewards = episode_rewards.sum(dim=-2).squeeze(-1)  
     done_env = done.any(dim=-2) | truncated.any(dim=-2)  # Environment done signal
     E, B, N, O = obs.shape
 
@@ -196,16 +195,31 @@ def get_passing_sequences(tensordict_data):
         previous_ball_owner = None
         for step in range(B):
             if done_env[env, step]:  # Reset at episode end and append sequence if successful
+                print("Episode reward:", episode_rewards[env, step])  
                 if episode_rewards[env, step] >= 3.0:
                     passing_sequences.append(current_sequence)
+                    print("Recorded passing sequence:", current_sequence)
                 current_sequence = []
                 previous_ball_owner = None
                 continue
 
-            if ball_ownership_agent[env, step, 1] == 1:  # left team in possession
-                agent_in_possession = active_player_agent[env, step].argmax().item()  # which agent
+            ball_pos = obs[env, step, 0, 38:40]
+            left_positions = torch.stack(
+                [
+                    obs[env, step, 0, 0:2],      
+                    obs[env, step, 0, 20:22], 
+                    obs[env, step, 0, 22:24],       
+                ],
+                dim=0
+            )
+
+            distances = torch.norm(left_positions - ball_pos, dim=-1)
+            min_dist, nearest_id = distances.min(dim=0)
+
+            if min_dist <= 0.03:
+                agent_in_possession = nearest_id.item() + 1
             else:
-                agent_in_possession = None  # ignore right team or no possession
+                agent_in_possession = None 
             
             if agent_in_possession is not None:
                 if previous_ball_owner is None:

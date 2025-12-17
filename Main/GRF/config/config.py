@@ -13,13 +13,13 @@ def parse_training_args():
     parser.add_argument(
         "--exp-name", 
         type=str, 
-        default="PIGAPPO",
+        default="MAPPO",
         help="the name of this experiment")
     
     parser.add_argument(
         "--algorithm", 
         type=str, 
-        default="PIGAPPO",
+        default="MAPPO",
         help="the algorithm which will be trained")
     
     parser.add_argument(
@@ -74,13 +74,13 @@ def parse_training_args():
     parser.add_argument(
         "--env-steps-per-batch",
         type=int,
-        default=1000,
+        default=2000,
         help="Number of frames collected per training iteration"
     )
     parser.add_argument(
         "--n-iters",
         type=int,
-        default=5,
+        default=50,
         help="Number of sampling and training iterations"
     )
 
@@ -88,7 +88,7 @@ def parse_training_args():
     parser.add_argument(
         "--num-epochs",
         type=int,
-        default=1,
+        default=45,
         help="Number of optimization steps per training iteration"
     )
     parser.add_argument(

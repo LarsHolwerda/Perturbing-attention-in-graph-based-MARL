@@ -20,8 +20,7 @@ class SIPO_WD:
         # List of tensors of each iteration, each tensor is [num_states, obs_dim]
         self.archive = [] 
         self.collected_trajectories = []
-        # Counter to select which trajectories will be stored
-        self.archive_counter = 0
+        
 
         # Current iterations WD critic and optimizer
         self.current_wd = None
@@ -111,7 +110,7 @@ class SIPO_WD:
                 r_j = r_j.squeeze(-1)
 
                 # Normalize intrinsic reward
-                #r_j = (r_j - r_j.mean(dim=(0,1,2), keepdim=True)) / (r_j.std(dim=(0,1,2), keepdim=True) + 1e-8)
+                r_j = (r_j - r_j.mean(dim=(0,1,2), keepdim=True)) / (r_j.std(dim=(0,1,2), keepdim=True) + 1e-8)
                 # Compute (lagrange multiplier * intrinsic reward) for the actually added intrinsic reward
                 int_r_total += lambda_j * r_j
 

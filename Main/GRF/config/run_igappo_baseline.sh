@@ -38,7 +38,7 @@ cd /scratch/7990537/Hierarchical-graph-based-MARL-for-strategic-and-diverse-coor
                --lmbda 0.95 \
                --entropy-eps 0.0 \
                --n-agents 3 \
-               --record-steps 124750 \
+               --record-steps 249900 \
                --num-episodes-to-record 1 \
                --policy-iterations 10 \
                --obs-dim 22
