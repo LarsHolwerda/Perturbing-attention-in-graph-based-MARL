@@ -61,6 +61,7 @@ if __name__ == "__main__":
         )
     # Initialize SIPO
     sipo_init = SIPO_WD(args)
+    analysis_data = []
     persistent_global_step = 0
     persistent_next_record_step = args.record_steps
     # Policy iterations loop
@@ -81,10 +82,12 @@ if __name__ == "__main__":
 
         # Make sipo_init available inside trainer_algorithm.train() to compute intrinsic rewards
         trainer_algorithm.sipo = sipo_init
+        trainer_algorithm.sipo.sipo_iteration = policy_iteration
 
-        # Restore persisted global step into the trainer
+        # Restore persisted global step, analysis_data into the trainer
         trainer_algorithm.global_step = persistent_global_step
         trainer_algorithm.next_record_step = persistent_next_record_step
+        trainer_algorithm.analysis_data = analysis_data
 
         # Initialize SIPO for new iteration
         sipo_init.start_new_iteration()
@@ -103,6 +106,10 @@ if __name__ == "__main__":
         # Save the concatenated trajectories into SIPO’s archive
         sipo_init.save_critic()
 
+    # Save analysis data after all policy iterations
+    output_file = f"{args.env_id}__{args.exp_name}__{args.seed}__{int(time.time())}.pt" 
+    torch.save(analysis_data, f"analysis/{output_file}")
+    
     # Log results
     if args.track:
         wandb.finish()

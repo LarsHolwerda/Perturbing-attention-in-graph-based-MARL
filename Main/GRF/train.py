@@ -1,8 +1,8 @@
-import gc
+import math
 import torch
 from tensordict.nn import TensorDictModule
-import sipo
-from utils import log_metrics, record_video, upload_videos_to_wandb, compute_behavioral_diversity, get_passing_sequences
+import wandb
+from utils import log_metrics, record_video, upload_videos_to_wandb, compute_behavioral_diversity, get_passing_sequences, compute_sequence_frequencies
 import time
 from tqdm import tqdm
 import time
@@ -19,7 +19,7 @@ class Train:
         self.global_step = 0
         self.next_record_step = args.record_steps
         self.perturb_attention_logits = False
-        
+        self.analysis_data = None
    
     def train(self):
         # Initialize progress bar
@@ -60,8 +60,20 @@ class Train:
             
             # Get passing sequences which lead up to a goal
             passing_sequences = get_passing_sequences(tensordict_data)
-            print("passing_sequences:", passing_sequences)
+            num_unique_sequences = len(set(tuple(seq) for seq in passing_sequences))
+            log_metrics({"diversity/num_unique_passing_sequences": num_unique_sequences}, step=self.global_step, use_wandb=self.args.track)
+            seq_counts, seq_perc, seq_total = compute_sequence_frequencies(passing_sequences)
             
+            log_record = {
+                "iteration": self.sipo.sipo_iteration,
+                "batch": i,
+                "total_goals": seq_total,
+                "sequence_counts": dict(seq_counts),
+                "sequence_percentages": dict(seq_perc),
+            }
+            self.analysis_data.append(log_record)
+
+
             # add intrinsic reward to push diversity
             sipo_time = time.time()
             tensordict_data = self.sipo.compute_intrinsic_reward(tensordict_data, self.global_step)

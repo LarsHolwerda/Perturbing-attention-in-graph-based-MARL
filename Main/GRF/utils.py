@@ -18,7 +18,7 @@ matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 from io import BytesIO
 from PIL import Image
-
+from collections import Counter
 
 # Initialize weights for layers
 def layer_init(layer, std=np.sqrt(2), bias_const=0.0):
@@ -231,7 +231,12 @@ def get_passing_sequences(tensordict_data):
 
     return passing_sequences
         
-
+def compute_sequence_frequencies(passing_sequences):
+    sequences = [tuple(seq) for seq in passing_sequences if seq != None]
+    seq_counts = Counter(sequences)
+    seq_total = sum(seq_counts.values())
+    seq_perc = {seq: count / seq_total for seq, count in seq_counts.items()}
+    return seq_counts, seq_perc, seq_total
             
 # Gappo
 def create_fully_connected_adj(n_agents, device):
