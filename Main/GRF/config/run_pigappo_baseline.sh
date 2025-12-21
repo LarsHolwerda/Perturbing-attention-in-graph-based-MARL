@@ -1,8 +1,8 @@
 #!/bin/bash
 
-#SBATCH --job-name=igappo_baseline
-#SBATCH --output=/scratch/7990537/Hierarchical-graph-based-MARL-for-strategic-and-diverse-coordination/Main/GRF/logs/igappo_baseline_%j.out
-#SBATCH --error=/scratch/7990537/Hierarchical-graph-based-MARL-for-strategic-and-diverse-coordination/Main/GRF/logs/igappo_baseline_%j.err
+#SBATCH --job-name=pigappo_baseline
+#SBATCH --output=/scratch/7990537/Hierarchical-graph-based-MARL-for-strategic-and-diverse-coordination/Main/GRF/logs/pigappo_baseline_%j.out
+#SBATCH --error=/scratch/7990537/Hierarchical-graph-based-MARL-for-strategic-and-diverse-coordination/Main/GRF/logs/pigappo_baseline_%j.err
 #SBATCH --time=10-00:00:00
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
@@ -45,7 +45,7 @@ cd /scratch/7990537/Hierarchical-graph-based-MARL-for-strategic-and-diverse-coor
                --n-agents 3 \
                --record-steps 249900 \
                --num-episodes-to-record 1 \
-               --policy-iterations 10 \
+               --policy-iterations 7 \
                --obs-dim 22
 
 echo "Job finished at $(date)"
